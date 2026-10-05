@@ -1,29 +1,20 @@
-# Secrets — never commit real environment files
+# Secrets and local data
 .env
-.env.*
-!.env.example
+*.db
+*.sqlite3
 
 # Python
-__pycache__/
-*.py[cod]
 .venv/
-.mypy_cache/
-.ruff_cache/
+__pycache__/
+*.pyc
 .pytest_cache/
-.coverage
-coverage.xml
-htmlcov/
-*.egg-info/
 
-# Node
-node_modules/
-dist/
-coverage/
-*.tsbuildinfo
+# Frontend
+frontend/node_modules/
+frontend/dist/
 
 # Editors / OS
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea/
 .DS_Store
 Thumbs.db
