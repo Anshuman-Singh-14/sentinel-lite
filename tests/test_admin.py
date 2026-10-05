@@ -2,6 +2,8 @@ from conftest import PASSWORD
 
 
 def test_admin_creates_user_who_can_log_in(admin_client):
+    weak = admin_client.post("/api/admin/users", json={"username": "bob", "password": "short"})
+    assert weak.status_code == 422
     response = admin_client.post("/api/admin/users", json={"username": "bob", "password": PASSWORD})
     assert response.status_code == 200
     assert response.json()["role"] == "user"
@@ -11,11 +13,6 @@ def test_admin_creates_user_who_can_log_in(admin_client):
     admin_client.post("/api/auth/logout")
     login = admin_client.post("/api/auth/login", json={"username": "bob", "password": PASSWORD})
     assert login.status_code == 200
-
-
-def test_weak_password_is_rejected(admin_client):
-    response = admin_client.post("/api/admin/users", json={"username": "bob", "password": "short"})
-    assert response.status_code == 422
 
 
 def test_admin_cannot_demote_themselves(admin_client):

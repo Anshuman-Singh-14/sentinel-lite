@@ -11,23 +11,18 @@ def approve(db, host):
     db.commit()
 
 
-def test_unapproved_target_is_refused(db):
+def test_only_approved_targets_are_allowed(db):
     with pytest.raises(HTTPException) as error:
         guard.check_target(db, "8.8.8.8")
     assert error.value.status_code == 403
-
-
-def test_approved_ip_is_allowed(db):
     approve(db, "8.8.8.8")
     assert guard.check_target(db, "8.8.8.8") == "8.8.8.8"
 
 
-@pytest.mark.parametrize(
-    ("ip", "internal"),
-    [("127.0.0.1", True), ("10.0.0.5", True), ("192.168.1.1", True), ("169.254.1.1", True), ("8.8.8.8", False)],
-)
-def test_internal_ips_are_recognised(ip, internal):
-    assert guard.is_internal_ip(ip) is internal
+def test_internal_ips_are_recognised():
+    for ip in ("127.0.0.1", "10.0.0.5", "192.168.1.1", "169.254.1.1"):
+        assert guard.is_internal_ip(ip), ip
+    assert not guard.is_internal_ip("8.8.8.8")
 
 
 def test_production_blocks_private_ips_even_when_approved(db, monkeypatch):
