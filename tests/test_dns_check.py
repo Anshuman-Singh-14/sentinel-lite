@@ -1,1 +1,47 @@
-"""Role 2: tests for tools/dns_check.py (SPF/DMARC parsing and findings). To do."""
+from backend.tools.dns_check import analyze, check_dmarc, check_spf, parse_tags
+
+
+def keys(findings):
+    return [finding["key"] for finding in findings]
+
+
+def test_missing_spf_is_medium():
+    findings = check_spf(["google-site-verification=abc"])
+    assert keys(findings) == ["dns.spf_missing"]
+    assert findings[0]["severity"] == "medium"
+
+
+def test_spf_plus_all_is_high():
+    findings = check_spf(["v=spf1 include:_spf.example.com +all"])
+    assert keys(findings) == ["dns.spf_allows_all"]
+    assert findings[0]["severity"] == "high"
+
+
+def test_spf_problems_multiple_records_and_no_all():
+    assert keys(check_spf(["v=spf1 -all", "v=spf1 ~all"])) == ["dns.spf_multiple"]
+    assert keys(check_spf(["v=spf1 include:_spf.example.com"])) == ["dns.spf_no_all"]
+
+
+def test_spf_softfail_passes():
+    assert check_spf(["v=spf1 include:_spf.example.com ~all"]) == []
+
+
+def test_dmarc_missing_invalid_and_monitor_only():
+    assert keys(check_dmarc([])) == ["dns.dmarc_missing"]
+    assert keys(check_dmarc(["v=DMARC1; rua=mailto:x@example.com"])) == ["dns.dmarc_invalid"]
+    findings = check_dmarc(["v=DMARC1; p=none"])
+    assert keys(findings) == ["dns.dmarc_policy_none"]
+    assert findings[0]["severity"] == "low"
+
+
+def test_parse_tags():
+    assert parse_tags("v=DMARC1; p=Quarantine ; rua=mailto:a@b.c") == {
+        "v": "DMARC1",
+        "p": "Quarantine",
+        "rua": "mailto:a@b.c",
+    }
+
+
+def test_analyze_reports_missing_a_and_mx():
+    findings = analyze(a=[], mx=[], txt=["v=spf1 -all"], dmarc=["v=DMARC1; p=reject"])
+    assert keys(findings) == ["dns.no_a_record", "dns.no_mx_record"]
