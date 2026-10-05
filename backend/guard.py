@@ -18,6 +18,13 @@ DNS_TIMEOUT = 3  # seconds
 SCANS_PER_MINUTE = 10
 LOGINS_PER_MINUTE = 5
 
+# Public resolvers rather than this computer's DNS settings, which on laptops often
+# point at a VPN or office server that isn't reachable.
+resolver = dns.resolver.Resolver(configure=False)
+resolver.nameservers = ["1.1.1.1", "8.8.8.8"]
+resolver.timeout = 1.5  # per server, so the second one gets a turn within DNS_TIMEOUT
+resolver.lifetime = DNS_TIMEOUT
+
 
 # --- Which targets may be scanned ---
 
@@ -29,7 +36,7 @@ def resolve(host: str) -> list[str]:
     except ValueError:
         pass
     try:
-        answer = dns.resolver.resolve(host, "A", lifetime=DNS_TIMEOUT)
+        answer = resolver.resolve(host, "A")
     except dns.exception.DNSException:
         raise HTTPException(400, f"Could not find an IPv4 address for {host}") from None
     return [record.address for record in answer]
