@@ -1,0 +1,15 @@
+# Caddy sits in front of Sentinel Lite. It gets a free HTTPS certificate from
+# Let's Encrypt for the domain automatically and forwards requests to uvicorn.
+# setup.sh copies this to /etc/caddy/Caddyfile and fills in your domain.
+
+{$DOMAIN} {
+	encode gzip
+
+	# Log uploads are limited to 5 MB by the app; refuse anything much bigger here already.
+	request_body {
+		max_size 6MB
+	}
+
+	# uvicorn listens only on localhost, so it can't be reached except through Caddy.
+	reverse_proxy 127.0.0.1:8000
+}
