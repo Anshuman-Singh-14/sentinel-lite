@@ -1,0 +1,197 @@
+{
+  "dns.no_a_record": {
+    "title": "The domain has no A record",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "dns.no_mx_record": {
+    "title": "The domain has no MX record",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "dns.spf_missing": {
+    "title": "No SPF record",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "dns.spf_multiple": {
+    "title": "More than one SPF record",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "dns.spf_allows_all": {
+    "title": "SPF allows any server to send mail (+all)",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "dns.spf_no_all": {
+    "title": "SPF record does not end with an \"all\" rule",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "dns.dmarc_missing": {
+    "title": "No DMARC record",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "dns.dmarc_invalid": {
+    "title": "DMARC record is not valid",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "dns.dmarc_policy_none": {
+    "title": "DMARC only monitors (p=none)",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+
+  "port.cleartext_service": {
+    "title": "A service that sends data unencrypted is open",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "port.database_exposed": {
+    "title": "A database port is reachable",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "port.remote_desktop": {
+    "title": "A remote desktop port is reachable",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "port.file_sharing": {
+    "title": "A Windows file-sharing port is reachable",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "port.ssh": {
+    "title": "SSH is open",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "port.web": {
+    "title": "A web server port is open",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "port.other": {
+    "title": "Another port is open",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+
+  "web.no_https": {
+    "title": "The site does not work over HTTPS",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.http_not_redirected": {
+    "title": "HTTP is not redirected to HTTPS",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.cert_invalid": {
+    "title": "The certificate is not trusted",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.cert_expired": {
+    "title": "The certificate has expired",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.cert_expiring_soon": {
+    "title": "The certificate expires within 30 days",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.missing_hsts": {
+    "title": "Missing Strict-Transport-Security (HSTS) header",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.missing_csp": {
+    "title": "Missing Content-Security-Policy header",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.missing_x_frame_options": {
+    "title": "Missing X-Frame-Options header",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.missing_x_content_type_options": {
+    "title": "Missing X-Content-Type-Options header",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.missing_referrer_policy": {
+    "title": "Missing Referrer-Policy header",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "web.missing_permissions_policy": {
+    "title": "Missing Permissions-Policy header",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+
+  "log.failed_login_burst": {
+    "title": "Burst of failed logins from one IP",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "log.success_after_failures": {
+    "title": "Successful login after many failures",
+    "severity": "high",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "log.http_auth_burst": {
+    "title": "Many 401/403 responses to one IP",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "log.many_not_found": {
+    "title": "Many 404 responses to one IP (probing)",
+    "severity": "medium",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  },
+  "log.no_lines_recognized": {
+    "title": "No lines in a known log format",
+    "severity": "low",
+    "explanation": "TODO (Role 4)",
+    "fix": "TODO (Role 4)"
+  }
+}
