@@ -92,11 +92,11 @@ def start_server(open_browser: bool) -> None:
 
     init_db()
     if not admin_exists():
-        if sys.stdin.isatty():
-            print("\nNo admin account yet. Create one now:")
+        print("\nNo admin account yet. Create one now:")
+        try:
             create_admin()
-        else:
-            print("\nNo admin account yet. Create one with: python -m backend.cli create-admin")
+        except EOFError:  # no keyboard attached, e.g. started by a script
+            print("\nSkipped. Create the admin later with: python -m backend.cli create-admin")
 
     url = f"http://{HOST}:{PORT}"
     print(f"\nSentinel Lite is running at {url}  (press Ctrl+C to stop)\n")
