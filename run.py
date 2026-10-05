@@ -109,12 +109,13 @@ def main() -> None:
     open_browser = "--no-browser" not in sys.argv
     in_venv = Path(sys.prefix).resolve() == VENV.resolve()
     try:
-        if in_venv:
-            start_server(open_browser)
-            return
+        # The setup steps always run, so it doesn't matter whether .venv is already activated.
         ensure_env_file()
         ensure_venv()
         build_frontend()
+        if in_venv:
+            start_server(open_browser)
+            return
         # Start this script again with the virtual environment's Python.
         result = subprocess.run([str(VENV_PYTHON), str(ROOT / "run.py"), *sys.argv[1:]], cwd=ROOT)
         sys.exit(result.returncode)
