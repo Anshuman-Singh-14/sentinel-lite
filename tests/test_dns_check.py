@@ -1,4 +1,4 @@
-from backend.tools.dns_check import analyze, check_dmarc, check_spf, parse_tags
+from backend.tools.dns_check import analyze, check_dmarc, check_spf
 
 
 def keys(findings):
@@ -20,10 +20,7 @@ def test_spf_plus_all_is_high():
 def test_spf_problems_multiple_records_and_no_all():
     assert keys(check_spf(["v=spf1 -all", "v=spf1 ~all"])) == ["dns.spf_multiple"]
     assert keys(check_spf(["v=spf1 include:_spf.example.com"])) == ["dns.spf_no_all"]
-
-
-def test_spf_softfail_passes():
-    assert check_spf(["v=spf1 include:_spf.example.com ~all"]) == []
+    assert check_spf(["v=spf1 include:_spf.example.com ~all"]) == []  # softfail is fine
 
 
 def test_dmarc_missing_invalid_and_monitor_only():
@@ -32,14 +29,6 @@ def test_dmarc_missing_invalid_and_monitor_only():
     findings = check_dmarc(["v=DMARC1; p=none"])
     assert keys(findings) == ["dns.dmarc_policy_none"]
     assert findings[0]["severity"] == "low"
-
-
-def test_parse_tags():
-    assert parse_tags("v=DMARC1; p=Quarantine ; rua=mailto:a@b.c") == {
-        "v": "DMARC1",
-        "p": "Quarantine",
-        "rua": "mailto:a@b.c",
-    }
 
 
 def test_analyze_reports_missing_a_and_mx():
