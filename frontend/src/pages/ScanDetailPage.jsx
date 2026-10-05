@@ -1,7 +1,26 @@
-import ComingSoon from "../components/ComingSoon.jsx";
+import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { api } from "../api.js";
+import ScanResult from "../components/ScanResult.jsx";
 
-// To do (Role 3): one scan with its findings and export links.
-// GET /api/scans/{id}, links to /api/scans/{id}/export.csv and /api/scans/{id}/report
 export default function ScanDetailPage() {
-  return <ComingSoon title="Scan result" />;
+  const { scanId } = useParams();
+  const [scan, setScan] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api(`/api/scans/${scanId}`)
+      .then(setScan)
+      .catch((err) => setError(err.message));
+  }, [scanId]);
+
+  return (
+    <section>
+      <p>
+        <Link to="/history">← Back to history</Link>
+      </p>
+      {error && <p className="error">{error}</p>}
+      {scan && <ScanResult scan={scan} />}
+    </section>
+  );
 }
