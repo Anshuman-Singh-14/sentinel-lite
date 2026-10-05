@@ -34,11 +34,8 @@ def test_five_failures_in_a_minute_is_a_high_burst():
     assert summary["top_ips"][0] == {
         "ip": "203.0.113.9", "failed_logins": 5, "auth_failures": 0, "not_found": 0, "total": 5,
     }
-
-
-def test_failures_spread_over_minutes_are_not_a_burst():
-    log = "\n".join(failed("203.0.113.9", 0, minute) for minute in range(5))
-    assert analyze_text(log)[1] == []
+    spread_out = "\n".join(failed("203.0.113.9", 0, minute) for minute in range(5))  # one a minute
+    assert analyze_text(spread_out)[1] == []
 
 
 def test_successful_login_after_failures_is_flagged():
