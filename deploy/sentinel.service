@@ -1,0 +1,27 @@
+# systemd service: starts Sentinel Lite at boot and restarts it if it crashes.
+# setup.sh copies this to /etc/systemd/system/sentinel.service.
+
+[Unit]
+Description=Sentinel Lite
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# A dedicated user with no login shell, so a bug in the app can't touch the rest of the server.
+User=sentinel
+Group=sentinel
+WorkingDirectory=/opt/sentinel-lite
+# One worker: the rate limits are kept in memory, so all requests must go to the same process.
+# uvicorn trusts the X-Forwarded-For header from Caddy on 127.0.0.1 to learn the real client IP.
+ExecStart=/opt/sentinel-lite/.venv/bin/uvicorn backend.app:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+
+# Sandboxing: the whole filesystem is read-only for the app except its data folder.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sentinel-lite/data
+
+[Install]
+WantedBy=multi-user.target

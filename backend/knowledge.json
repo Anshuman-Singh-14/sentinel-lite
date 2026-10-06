@@ -2,196 +2,196 @@
   "dns.no_a_record": {
     "title": "The domain has no A record",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "An A record maps a name to an IPv4 address. Without one, browsers cannot reach a website at this exact name. That is fine for a domain used only for email, but it is usually a mistake for a website.",
+    "fix": "If the domain should host a website, add an A record at your DNS provider pointing to your server's IP address."
   },
   "dns.no_mx_record": {
     "title": "The domain has no MX record",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "MX records tell other mail servers where to deliver email for the domain. With none, nobody can email addresses at this domain.",
+    "fix": "If the domain should receive email, add the MX records your email provider gives you. If it never sends or receives mail, also publish \"v=spf1 -all\" so nobody can send mail pretending to be it."
   },
   "dns.spf_missing": {
     "title": "No SPF record",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "SPF is a TXT record that lists which servers may send email for the domain. Without it, receiving mail servers cannot tell real mail from forged mail, which makes phishing in the domain's name easier.",
+    "fix": "Add a TXT record such as \"v=spf1 include:_spf.google.com -all\", using the include your email provider documents. If the domain sends no mail, use \"v=spf1 -all\"."
   },
   "dns.spf_multiple": {
     "title": "More than one SPF record",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "A domain may have only one SPF record. When there are several, receiving servers treat SPF as broken and ignore it, so the domain is as unprotected as if it had none.",
+    "fix": "Merge everything into a single TXT record starting with \"v=spf1\" (for example \"v=spf1 include:a.example include:b.example -all\") and delete the others."
   },
   "dns.spf_allows_all": {
     "title": "SPF allows any server to send mail (+all)",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "The record ends with \"+all\" (or a bare \"all\"), which tells the world that every server on the internet may send mail for this domain. That defeats the purpose of SPF and makes forged email look legitimate.",
+    "fix": "Change the ending to \"-all\" (reject everything not listed) or \"~all\" (mark it as suspicious) after making sure your real mail servers are listed."
   },
   "dns.spf_no_all": {
     "title": "SPF record does not end with an \"all\" rule",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "The \"all\" rule at the end says what to do with mail from servers that are not listed. Without it, receivers treat unlisted servers as \"neutral\", so the record gives little protection.",
+    "fix": "Add \"-all\" or \"~all\" to the end of the SPF record."
   },
   "dns.dmarc_missing": {
     "title": "No DMARC record",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "DMARC tells receiving mail servers what to do with mail that fails SPF or DKIM checks, and where to send reports about it. Without it, forged mail is usually still delivered and you never hear about it.",
+    "fix": "Add a TXT record at _dmarc.<your domain>, starting with \"v=DMARC1; p=none; rua=mailto:dmarc@<your domain>\" to collect reports, then move to p=quarantine or p=reject."
   },
   "dns.dmarc_invalid": {
     "title": "DMARC record is not valid",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "A DMARC record was found but receivers cannot use it, because it has no valid policy (p=none, p=quarantine or p=reject) or because there is more than one record. An invalid record is treated as no record at all.",
+    "fix": "Keep exactly one TXT record at _dmarc.<your domain> and make sure it contains \"v=DMARC1\" followed by a policy such as \"p=quarantine\"."
   },
   "dns.dmarc_policy_none": {
     "title": "DMARC only monitors (p=none)",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "With p=none, receivers report on mail that fails the checks but still deliver it. This is a good first step, but forged mail still reaches inboxes.",
+    "fix": "Once the reports show your real mail passes, change the policy to p=quarantine (send failures to spam) and later to p=reject."
   },
 
   "port.cleartext_service": {
     "title": "A service that sends data unencrypted is open",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "This port runs an old protocol such as FTP, Telnet, POP3 or IMAP without encryption. Usernames, passwords and data travel in plain text, so anyone on the network path can read them.",
+    "fix": "Turn the service off if it is not needed. Otherwise switch to the encrypted version (SFTP instead of FTP, SSH instead of Telnet, IMAPS/POP3S instead of IMAP/POP3) and close this port in the firewall."
   },
   "port.database_exposed": {
     "title": "A database port is reachable",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "Databases such as MySQL, PostgreSQL, Redis or MongoDB should only be reachable by the application that uses them. When they are open to the network, attackers can try passwords or known weaknesses, and some (like Redis) have no password by default.",
+    "fix": "Make the database listen only on 127.0.0.1 or a private network, and block the port in the firewall (for example \"sudo ufw deny 3306\")."
   },
   "port.remote_desktop": {
     "title": "A remote desktop port is reachable",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "Remote desktop services like RDP give full control of the machine. When they are open to the internet they are attacked all the time by password-guessing bots and have had serious security flaws.",
+    "fix": "Do not expose remote desktop directly. Put it behind a VPN, or at least allow only known IP addresses in the firewall and require strong passwords."
   },
   "port.file_sharing": {
     "title": "A Windows file-sharing port is reachable",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "SMB, NetBIOS and Windows RPC are meant for local networks. Exposing them has led to major attacks such as the WannaCry ransomware.",
+    "fix": "Block ports 135, 139 and 445 in the firewall for anything outside your local network, and keep Windows updated."
   },
   "port.ssh": {
     "title": "SSH is open",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "SSH is the normal, encrypted way to manage a server, so this is often expected. It does attract constant password-guessing attempts from bots.",
+    "fix": "Use SSH keys instead of passwords (set \"PasswordAuthentication no\"), disable root login, and consider a tool like fail2ban to block repeated failures."
   },
   "port.web": {
     "title": "A web server port is open",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "Ports 80, 443, 8080 and 8443 serve websites, which is expected for a web server. Every open service is something that must be kept up to date.",
+    "fix": "Make sure this website is meant to be public, serve it over HTTPS, and run the Website check on it to review its security headers."
   },
   "port.other": {
     "title": "Another port is open",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "Something is listening on this port. It may be harmless, but every open port is a possible way in, and services that nobody remembers are often the ones left unpatched.",
+    "fix": "Find out which program uses this port. If it is not needed, stop it; otherwise make sure it is up to date and allowed only from the addresses that need it."
   },
 
   "web.no_https": {
     "title": "The site does not work over HTTPS",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "No secure connection could be made on port 443. Without HTTPS, everything visitors send and receive, including passwords and cookies, can be read or changed by anyone on the network path.",
+    "fix": "Get a free certificate from Let's Encrypt (most hosts and web servers like Caddy do this automatically) and serve the site over HTTPS."
   },
   "web.http_not_redirected": {
     "title": "HTTP is not redirected to HTTPS",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "The site still answers over plain HTTP instead of sending visitors to the HTTPS version. Anyone who types the address without \"https://\" uses an unencrypted connection.",
+    "fix": "Configure the web server to answer every http:// request with a permanent redirect (301) to the same https:// address."
   },
   "web.cert_invalid": {
     "title": "The certificate is not trusted",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "The certificate failed verification: it may be self-signed, issued for a different name, or missing part of its chain. Browsers show a full-page warning, and users who click through can be fooled by an attacker's fake certificate.",
+    "fix": "Install a certificate from a trusted authority such as Let's Encrypt that matches this exact hostname, including the full certificate chain."
   },
   "web.cert_expired": {
     "title": "The certificate has expired",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "An expired certificate can no longer prove the site is genuine, so browsers block visitors with a security warning.",
+    "fix": "Renew the certificate now, and set up automatic renewal (certbot renew, or a server like Caddy that renews by itself)."
   },
   "web.cert_expiring_soon": {
     "title": "The certificate expires within 30 days",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "The certificate is still valid but will expire soon. When it does, visitors will see a security warning and may be unable to use the site.",
+    "fix": "Renew the certificate before it expires and check that automatic renewal is working."
   },
   "web.missing_hsts": {
     "title": "Missing Strict-Transport-Security (HSTS) header",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "HSTS tells browsers to always use HTTPS for this site. Without it, the first visit can happen over HTTP, where an attacker on the same Wi-Fi can intercept it and keep the user on an insecure connection.",
+    "fix": "Send the header \"Strict-Transport-Security: max-age=31536000; includeSubDomains\" on every HTTPS response."
   },
   "web.missing_csp": {
     "title": "Missing Content-Security-Policy header",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "A Content Security Policy tells the browser which sources of scripts, styles and images are allowed. It is a strong second line of defence against cross-site scripting (XSS), where an attacker gets their own JavaScript to run on the page.",
+    "fix": "Start with \"Content-Security-Policy: default-src 'self'\" and add the other sources your site really needs. Test in report-only mode first if the site is large."
   },
   "web.missing_x_frame_options": {
     "title": "Missing X-Frame-Options header",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "Without this header, other websites can load this site inside an invisible frame and trick users into clicking buttons they cannot see (clickjacking).",
+    "fix": "Send \"X-Frame-Options: DENY\" (or SAMEORIGIN if the site frames its own pages). The CSP rule frame-ancestors 'none' does the same in newer browsers."
   },
   "web.missing_x_content_type_options": {
     "title": "Missing X-Content-Type-Options header",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "Without this header, some browsers guess a file's type from its content. An uploaded file that looks like a script could then be run as one.",
+    "fix": "Send \"X-Content-Type-Options: nosniff\" on every response."
   },
   "web.missing_referrer_policy": {
     "title": "Missing Referrer-Policy header",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "When users follow a link to another site, the browser can send the full address of the page they came from. That address may contain private details such as search terms or IDs.",
+    "fix": "Send \"Referrer-Policy: strict-origin-when-cross-origin\" (or \"no-referrer\" for the most privacy)."
   },
   "web.missing_permissions_policy": {
     "title": "Missing Permissions-Policy header",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "This header switches off browser features the site does not use, such as the camera, microphone or location. If an attacker ever runs code on the page, those features stay out of reach.",
+    "fix": "Send a header such as \"Permissions-Policy: camera=(), microphone=(), geolocation=()\", allowing only the features the site needs."
   },
 
   "log.failed_login_burst": {
     "title": "Burst of failed logins from one IP",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "One IP address failed to log in 5 or more times within a minute. That speed points to an automated password-guessing (brute-force) attack rather than a person who forgot their password.",
+    "fix": "Block the IP in the firewall, use SSH keys instead of passwords, disable root login, and install fail2ban to block such bursts automatically."
   },
   "log.success_after_failures": {
     "title": "Successful login after many failures",
     "severity": "high",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "An IP address that failed to log in at least 5 times then logged in successfully. This may mean a password was guessed and the attacker is now inside.",
+    "fix": "Check right away whether this login was genuine. If not, change the account's password, end its sessions, review what it did, and block the IP."
   },
   "log.http_auth_burst": {
     "title": "Many 401/403 responses to one IP",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "The web server refused this IP's requests many times with \"unauthorized\" or \"forbidden\". It may be trying passwords on a login page or probing for protected areas.",
+    "fix": "Check which pages it requested. Add rate limiting on login pages and block the IP if the traffic is clearly malicious."
   },
   "log.many_not_found": {
     "title": "Many 404 responses to one IP (probing)",
     "severity": "medium",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "This IP asked for many pages that do not exist. That is typical of scanners looking for admin panels, backups or known vulnerable software (for example /wp-login.php on a site that isn't WordPress).",
+    "fix": "Look at which paths it requested to see what it was searching for, make sure none of those exist on your server, and consider blocking or rate-limiting the IP."
   },
   "log.no_lines_recognized": {
     "title": "No lines in a known log format",
     "severity": "low",
-    "explanation": "TODO (Role 4)",
-    "fix": "TODO (Role 4)"
+    "explanation": "None of the lines looked like an sshd authentication log or an nginx access log, so nothing could be analyzed. The file may be empty or in a different format.",
+    "fix": "Upload /var/log/auth.log (sshd) or /var/log/nginx/access.log in their default formats."
   }
 }
