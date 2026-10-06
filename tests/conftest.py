@@ -12,6 +12,7 @@ os.environ["DATABASE_PATH"] = str(Path(tempfile.mkdtemp()) / "test.db")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from backend import guard  # noqa: E402
 from backend.app import app  # noqa: E402
 from backend.auth import hash_password  # noqa: E402
 from backend.db import Base, SessionLocal, engine  # noqa: E402
@@ -27,6 +28,13 @@ def db():
     Base.metadata.create_all(engine)
     with SessionLocal() as session:
         yield session
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Rate limits live in memory, so clear them or one test's requests count against the next."""
+    guard.scan_limiter.reset()
+    guard.login_limiter.reset()
 
 
 @pytest.fixture
