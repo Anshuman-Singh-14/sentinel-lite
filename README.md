@@ -39,7 +39,7 @@ Each member owns one area and can explain every file in it. The live task list i
 | Role | Owner | Files |
 |---|---|---|
 | **1. Backend & Security Lead** | Nilaang Nambiar | `backend/app.py`, `config.py`, `db.py`, `models.py`, `auth.py`, `cli.py`, `validation.py`, `admin.py`, `guard.py` (allowlist, rate limit, activity log), `tests/test_auth.py`, `test_guard.py`, `test_admin.py` |
-| **2. Network Security Tools** | Member 2 | `backend/tools/dns_check.py`, `port_scan.py`, `web_check.py`, `tests/test_dns_check.py`, `test_port_scan.py`, `test_web_check.py` |
+| **2. Network Security Tools** | Chaitanya Goel | `backend/tools/dns_check.py`, `port_scan.py`, `web_check.py`, `tests/test_dns_check.py`, `test_port_scan.py`, `test_web_check.py` |
 | **3. Frontend & UX** | Member 3 | everything in `frontend/` (pages, layout, browser-only tools, findings display) |
 | **4. Log Analysis, Reports, Testing & Deployment** | Member 4 | `backend/tools/log_analyzer.py`, `reports.py`, `results.py`, `knowledge.json`, `tests/test_log_analyzer.py`, `test_reports.py`, `test_knowledge.py`, `.github/workflows/ci.yml`, `deploy/`, `DEPLOY.md`, `run.py` |
 
