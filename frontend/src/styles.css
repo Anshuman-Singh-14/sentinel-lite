@@ -211,3 +211,211 @@ button:disabled {
   width: 100%;
   max-width: 360px;
 }
+
+/* --- Tool forms --- */
+
+.tool-form {
+  margin-bottom: 1rem;
+}
+
+.tool-form button {
+  margin-top: 0.3rem;
+}
+
+fieldset {
+  border: none;
+  padding: 0;
+  margin: 0 0 0.8rem;
+}
+
+legend {
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+label.inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+}
+
+label.inline input {
+  width: auto;
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.row label {
+  flex: 1 1 180px;
+}
+
+.row button {
+  margin-bottom: 0.8rem;
+}
+
+.notice {
+  background: #eaf1ff;
+  border: 1px solid #c4d6fb;
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+}
+
+/* --- Results --- */
+
+.scan-result {
+  margin-top: 1.5rem;
+}
+
+.result-header h2 {
+  margin-bottom: 0.2rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75rem 0;
+  background: var(--surface);
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.facts th {
+  width: 220px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.data thead th {
+  background: #eef0f4;
+}
+
+code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge-high {
+  background: var(--high);
+}
+
+.badge-medium {
+  background: var(--medium);
+}
+
+.badge-low {
+  background: var(--low);
+}
+
+.findings {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.finding {
+  border-left-width: 6px;
+}
+
+.finding-high {
+  border-left-color: var(--high);
+}
+
+.finding-medium {
+  border-left-color: var(--medium);
+}
+
+.finding-low {
+  border-left-color: var(--low);
+}
+
+.finding header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.finding h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.finding .details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.counts span {
+  margin-right: 0.6rem;
+}
+
+.raw {
+  margin-top: 1rem;
+}
+
+.raw summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+/* --- Password meter --- */
+
+.meter {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.meter span {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+}
+
+.meter .score-1 {
+  background: var(--high);
+}
+
+.meter .score-2 {
+  background: var(--medium);
+}
+
+.meter .score-3,
+.meter .score-4 {
+  background: var(--low);
+}
+
+/* --- Admin --- */
+
+.admin-section {
+  margin-bottom: 2rem;
+}
+
+.actions button {
+  margin-right: 0.8rem;
+}
