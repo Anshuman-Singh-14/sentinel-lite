@@ -41,3 +41,11 @@ def test_passwords_are_stored_hashed(make_user):
     user = make_user("alice")
     assert PASSWORD not in user.password_hash
     assert user.password_hash.startswith("$2b$")
+
+
+def test_security_headers_except_csp_on_api_docs(client):
+    assert "default-src 'self'" in client.get("/api/health").headers["content-security-policy"]
+    docs = client.get("/api/docs")  # Swagger UI needs its CDN scripts, so no CSP there
+    assert docs.status_code == 200
+    assert "content-security-policy" not in docs.headers
+    assert docs.headers["x-frame-options"] == "DENY"

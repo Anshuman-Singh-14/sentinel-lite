@@ -53,7 +53,12 @@ app.add_middleware(
 async def add_security_headers(request: Request, call_next):
     """Sentinel checks other sites for these headers, so it sends them too."""
     response = await call_next(request)
-    for name, value in SECURITY_HEADERS.items():
+    headers = dict(SECURITY_HEADERS)
+    if request.url.path.startswith("/api/docs"):
+        # The API docs page loads Swagger UI from a CDN, which our CSP would block.
+        # That page only exists in development (it is switched off in production).
+        del headers["Content-Security-Policy"]
+    for name, value in headers.items():
         response.headers.setdefault(name, value)
     if settings.is_prod:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")

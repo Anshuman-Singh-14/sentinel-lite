@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend import guard
 from backend.db import get_db
 from backend.models import User
 
@@ -58,17 +59,26 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    # Behind Caddy, uvicorn takes the real client IP from the X-Forwarded-For header.
+    client_ip = request.client.host if request.client else "unknown"
+    guard.check_login_rate(client_ip)
     user = db.scalar(select(User).where(User.username == body.username))
     password_ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH.decode())
     if user is None or not password_ok or not user.is_active:
+        guard.record(db, body.username, "login_failed", f"from {client_ip}")
         raise HTTPException(401, "Wrong username or password")
     request.session.clear()
     request.session["user_id"] = user.id
+    guard.log_activity(db, user, "login", f"from {client_ip}")
     return user_to_dict(user)
 
 
 @router.post("/logout")
-def logout(request: Request):
+def logout(request: Request, db: Session = Depends(get_db)):
+    user_id = request.session.get("user_id")
+    user = db.get(User, user_id) if user_id else None
+    if user:
+        guard.log_activity(db, user, "logout")
     request.session.clear()
     return {"ok": True}
 
