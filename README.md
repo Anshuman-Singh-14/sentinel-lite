@@ -30,7 +30,7 @@ python run.py
 
 `run.py` creates `.env` with a random secret, sets up `.venv`, installs packages, builds the frontend, asks you to create the first admin, starts the server and opens http://127.0.0.1:8000. Run it again any time; steps that are already done are skipped.
 
-To put it on a real server with a domain name, see [DEPLOY.md](DEPLOY.md).
+To put it on a real server with a domain name, see [DEPLOY.md](DEPLOY.md) (Ubuntu VPS) or [DEPLOY-CPANEL.md](DEPLOY-CPANEL.md) (cPanel shared hosting).
 
 ## Team roles
 
@@ -103,7 +103,7 @@ Errors come back as `{"detail": "message"}` with a matching HTTP status (400, 40
 
 ## Security design
 
-- **No shell commands.** The tools use Python's `socket`, `ssl`, `dnspython` and `httpx` directly. Only `run.py` and `deploy/setup.sh` start other programs.
+- **No shell commands.** The tools use Python's `socket`, `ssl`, `dnspython` and `httpx` directly. Only `run.py`, `deploy/cpanel_bundle.py` and `deploy/setup.sh` start other programs.
 - **Passwords** are hashed with bcrypt. There is no public sign-up; admins create accounts.
 - **Sessions** use a signed cookie that JavaScript can't read (httpOnly), is only sent over HTTPS in production (Secure), and is not sent on cross-site form posts (SameSite=Lax). That last part is what protects against CSRF.
 - **Input validation** with Pydantic on every request: hostnames, ports, usernames, passwords.
