@@ -16,8 +16,10 @@ class Base(DeclarativeBase):
 
 
 def init_db() -> None:
+    """Create the database folder and any missing tables. Safe to call more than once."""
     import backend.models  # noqa: F401  (registers the tables on Base)
 
+    settings.db_file.parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(engine)
 
 

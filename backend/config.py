@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     secret_key: str = Field(min_length=32)
     domain: str = "localhost"
     database_path: Path = Path("sentinel.db")
+    # First-admin bootstrap (see backend.cli.bootstrap_admin). Empty means "don't".
+    admin_username: str = ""
+    admin_password: str = ""
 
     @field_validator("secret_key")
     @classmethod

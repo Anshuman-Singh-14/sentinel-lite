@@ -6,11 +6,14 @@
 
 import argparse
 import getpass
+import sys
 
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from backend.auth import hash_password
+from backend.config import settings
 from backend.db import SessionLocal, init_db
 from backend.models import User
 from backend.validation import Password, Username
@@ -47,6 +50,31 @@ def create_admin(username: str | None = None) -> None:
         db.add(User(username=username, password_hash=hash_password(password), role="admin"))
         db.commit()
     print(f"Admin {username!r} created.")
+
+
+def bootstrap_admin() -> None:
+    """Create the admin from ADMIN_USERNAME / ADMIN_PASSWORD, but only while there are no users.
+
+    For hosting without a terminal (cPanel), where `create-admin` can't be run.
+    Does nothing if either setting is empty or any user already exists.
+    """
+    if not (settings.admin_username and settings.admin_password):
+        return
+    try:
+        username = TypeAdapter(Username).validate_python(settings.admin_username)
+        password = TypeAdapter(Password).validate_python(settings.admin_password)
+    except ValidationError as error:
+        print(f"Admin bootstrap skipped: {error.errors()[0]['msg']}", file=sys.stderr)
+        return
+    with SessionLocal() as db:
+        if db.scalar(select(User).limit(1)) is not None:
+            return
+        db.add(User(username=username, password_hash=hash_password(password), role="admin"))
+        try:
+            db.commit()
+        except IntegrityError:  # another server process created it at the same moment
+            return
+    print(f"Admin bootstrap: created admin {username!r}.", file=sys.stderr)
 
 
 def main() -> None:

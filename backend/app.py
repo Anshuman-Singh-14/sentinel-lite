@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from backend import admin, auth, reports
+from backend.cli import bootstrap_admin
 from backend.config import ROOT, settings
 from backend.db import init_db
 from backend.tools import TOOLS
@@ -24,9 +25,19 @@ SECURITY_HEADERS = {
 }
 
 
+def startup() -> None:
+    """Everything the app needs before the first request. Safe to call more than once.
+
+    uvicorn runs it through `lifespan`; passenger_wsgi.py calls it directly because
+    the WSGI adapter used on cPanel doesn't run lifespan events.
+    """
+    init_db()
+    bootstrap_admin()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    init_db()
+    startup()
     yield
 
 
