@@ -1,5 +1,6 @@
 """The FastAPI application: middleware, routers and the built frontend."""
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -8,8 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from backend import admin, auth, reports
+from backend.auth import hash_password
 from backend.config import ROOT, settings
-from backend.db import init_db
+from backend.db import SessionLocal, init_db
+from backend.models import User
 from backend.tools import TOOLS
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"
@@ -24,9 +27,40 @@ SECURITY_HEADERS = {
 }
 
 
+def seed_admin_user():
+    """Automatically seed an admin account on startup using environment variables."""
+    admin_username = os.getenv("ADMIN_USER") or os.getenv("admin_user")
+    admin_password = os.getenv("ADMIN_PASSWORD") or os.getenv("admin_password")
+
+    if not admin_username or not admin_password:
+        return
+
+    db = SessionLocal()
+    try:
+        existing_user = db.query(User).filter(User.username == admin_username).first()
+        if not existing_user:
+            user_data = {
+                "username": admin_username,
+                "password_hash": hash_password(admin_password),
+            }
+            if hasattr(User, "role"):
+                user_data["role"] = "admin"
+
+            admin_account = User(**user_data)
+            db.add(admin_account)
+            db.commit()
+            print(f"[*] Successfully seeded admin user '{admin_username}' from environment variables.")
+    except Exception as e:
+        db.rollback()
+        print(f"[!] Failed to seed admin user: {e}")
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    seed_admin_user()
     yield
 
 
