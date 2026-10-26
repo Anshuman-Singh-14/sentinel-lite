@@ -8,6 +8,7 @@ from pathlib import Path
 os.environ["APP_ENV"] = "dev"
 os.environ["SECRET_KEY"] = "test-secret-key-that-is-long-enough-1234"
 os.environ["DATABASE_PATH"] = str(Path(tempfile.mkdtemp()) / "test.db")
+os.environ["ALLOWED_ORIGINS"] = "https://app.example.com"  # turns on CORS (see test_cors.py)
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

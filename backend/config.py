@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     secret_key: str = Field(min_length=32)
     domain: str = "localhost"
     database_path: Path = Path("sentinel.db")
+    # Comma-separated sites that may call the API from another origin (the frontend on
+    # sentinellite.com calling api.sentinellite.com). Empty means same-origin only.
+    allowed_origins: str = ""
 
     @field_validator("secret_key")
     @classmethod
@@ -23,6 +26,18 @@ class Settings(BaseSettings):
         if value.startswith("CHANGE_ME"):
             raise ValueError("set a real SECRET_KEY in .env")
         return value
+
+    @field_validator("allowed_origins")
+    @classmethod
+    def no_wildcard(cls, value: str) -> str:
+        # The session cookie is sent with credentials, and "*" would let any site use it.
+        if "*" in value:
+            raise ValueError("ALLOWED_ORIGINS must list exact origins, not *")
+        return value
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [origin.strip().rstrip("/") for origin in self.allowed_origins.split(",") if origin.strip()]
 
     @property
     def is_prod(self) -> bool:

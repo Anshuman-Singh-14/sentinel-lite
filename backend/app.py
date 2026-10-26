@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -81,6 +82,17 @@ app.add_middleware(
     same_site="lax",  # not sent on cross-site POSTs, which blocks CSRF
     https_only=settings.is_prod,  # the Secure flag; dev runs on plain http://localhost
 )
+
+if settings.cors_origins:
+    # Lets the frontend on another origin (sentinellite.com -> api.sentinellite.com) call
+    # the API with the session cookie. Only the listed origins, never "*".
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
 
 
 @app.middleware("http")
