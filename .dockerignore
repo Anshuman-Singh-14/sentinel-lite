@@ -1,0 +1,16 @@
+# Never send secrets or local data into an image
+.env
+*.db
+*.sqlite3
+*.zip
+logs/
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+docs/
+frontend/
