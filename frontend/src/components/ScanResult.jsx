@@ -1,3 +1,4 @@
+import { apiUrl } from "../api.js";
 import { formatDate } from "../format.js";
 import FindingsList from "./FindingsList.jsx";
 
@@ -11,8 +12,8 @@ export default function ScanResult({ scan }) {
         </h2>
         <p className="muted small">
           {formatDate(scan.created_at)} ·{" "}
-          <a href={`/api/scans/${scan.id}/export.csv`}>Download CSV</a> ·{" "}
-          <a href={`/api/scans/${scan.id}/report`} target="_blank" rel="noopener noreferrer">
+          <a href={apiUrl(`/api/scans/${scan.id}/export.csv`)}>Download CSV</a> ·{" "}
+          <a href={apiUrl(`/api/scans/${scan.id}/report`)} target="_blank" rel="noopener noreferrer">
             Printable report
           </a>
         </p>
