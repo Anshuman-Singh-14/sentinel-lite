@@ -1,6 +1,6 @@
 from sqlalchemy import select
 
-from backend.models import User
+from backend.models import Activity, User
 from backend.results import make_finding, save_scan
 
 
@@ -35,3 +35,14 @@ def test_html_report_escapes_content(db, user_client):
     assert "&lt;script&gt;" in response.text
     assert "<script>" not in response.text
     assert response.headers["content-security-policy"].startswith("default-src 'none'")
+
+
+def test_downloading_a_scan_is_logged(db, user_client):
+    scan = add_scan(db, "alice")
+    user_client.get(f"/api/scans/{scan['id']}/export.csv")
+    user_client.get(f"/api/scans/{scan['id']}/report")
+    entries = db.scalars(select(Activity).order_by(Activity.id)).all()
+    assert [(e.action, e.detail) for e in entries[-2:]] == [
+        ("scan_exported", f"#{scan['id']} example.com as CSV"),
+        ("scan_exported", f"#{scan['id']} example.com as report"),
+    ]

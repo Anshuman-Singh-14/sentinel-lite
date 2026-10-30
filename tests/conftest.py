@@ -7,7 +7,9 @@ from pathlib import Path
 # Settings are read when backend.config is imported, so set them first.
 os.environ["APP_ENV"] = "dev"
 os.environ["SECRET_KEY"] = "test-secret-key-that-is-long-enough-1234"
-os.environ["DATABASE_PATH"] = str(Path(tempfile.mkdtemp()) / "test.db")
+TEST_DIR = Path(tempfile.mkdtemp())
+os.environ["DATABASE_PATH"] = str(TEST_DIR / "test.db")
+os.environ["ACTIVITY_LOG_PATH"] = str(TEST_DIR / "activity.log")
 os.environ["ALLOWED_ORIGINS"] = "https://app.example.com"  # turns on CORS (see test_cors.py)
 
 import pytest  # noqa: E402
@@ -36,6 +38,18 @@ def reset_rate_limits():
     """Rate limits live in memory, so clear them or one test's requests count against the next."""
     guard.scan_limiter.reset()
     guard.login_limiter.reset()
+
+
+@pytest.fixture
+def activity_log_file():
+    """The activity log file, emptied so a test only sees its own events.
+
+    List it before admin_client/user_client in a test's arguments, so it is emptied
+    before their login is written.
+    """
+    path = Path(os.environ["ACTIVITY_LOG_PATH"])
+    path.unlink(missing_ok=True)
+    return path
 
 
 @pytest.fixture
