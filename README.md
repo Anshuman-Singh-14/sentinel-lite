@@ -30,7 +30,7 @@ python run.py
 
 `run.py` creates `.env` with a random secret, sets up `.venv`, installs packages, builds the frontend, asks you to create the first admin, starts the server and opens http://127.0.0.1:8000. Run it again any time; steps that are already done are skipped.
 
-To put it on a real server with a domain name, see [DEPLOY.md](DEPLOY.md).
+To put it on a real server with a domain name, see [DEPLOY.md](DEPLOY.md) (Ubuntu VPS with Caddy) or [DEPLOYMENT.md](DEPLOYMENT.md) (Docker + Cloudflare Tunnel).
 
 ## Team roles
 

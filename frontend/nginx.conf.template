@@ -1,0 +1,29 @@
+# Serves the built React app. ${API_URL} is filled in by the nginx image at startup.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    server_tokens off;
+
+    # Sentinel checks other sites for these headers, so it sends them too.
+    # connect-src allows the browser to call the API on its own subdomain.
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self' ${API_URL}; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # No add_header inside the locations below: that would drop the headers above.
+
+    # Built files have a hash in their name, so they can be cached for a long time.
+    location /assets/ {
+        expires 1y;
+    }
+
+    # Every other path is a React Router page: serve index.html (never cached).
+    location / {
+        try_files $uri /index.html;
+        expires -1;
+    }
+}

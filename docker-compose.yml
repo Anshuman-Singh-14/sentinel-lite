@@ -1,0 +1,64 @@
+# Sentinel Lite in Docker, published through a Cloudflare Tunnel. See DEPLOYMENT.md.
+#
+#   docker compose up -d --build                     backend + frontend (local test)
+#   docker compose --profile tunnel up -d --build    the same, plus the tunnel
+#
+# Settings come from .env next to this file (never committed). Each service gets
+# only the variables it needs, so the tunnel token never reaches the backend.
+
+services:
+  backend:
+    build: .
+    environment:
+      APP_ENV: prod
+      SECRET_KEY: ${SECRET_KEY}
+      DOMAIN: ${DOMAIN:-localhost}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      DATABASE_PATH: /data/sentinel.db
+    volumes:
+      - sentinel-data:/data
+    networks: [sentinel]
+    # Only on this computer (127.0.0.1), for local testing. The tunnel reaches it as backend:8000.
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    environment:
+      API_URL: ${VITE_API_URL}  # for the CSP connect-src in nginx.conf.template
+    networks: [sentinel]
+    # Only on this computer, for local testing. The tunnel reaches it as frontend:80.
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    # HTTP/2 over TCP 443: many networks block QUIC (UDP 7844), cloudflared's default.
+    command: tunnel --no-autoupdate --protocol http2 run
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+    networks: [sentinel]
+    # No ports: the tunnel connects out to Cloudflare, nothing connects in.
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+    profiles: [tunnel]
+
+networks:
+  sentinel:
+
+volumes:
+  sentinel-data:
