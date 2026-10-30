@@ -15,6 +15,7 @@ services:
       DOMAIN: ${DOMAIN:-localhost}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       DATABASE_PATH: /data/sentinel.db
+      ACTIVITY_LOG_PATH: /data/activity.log  # in the volume, so it survives rebuilds
     volumes:
       - sentinel-data:/data
     networks: [sentinel]

@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend import guard
 from backend.auth import current_user
 from backend.db import get_db
 from backend.models import Scan, User
@@ -87,6 +88,7 @@ def scan_to_csv(scan: Scan) -> str:
 @router.get("/{scan_id}/export.csv")
 def export_csv(scan_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     scan = get_own_scan(db, user, scan_id)
+    guard.log_activity(db, user, "scan_exported", f"#{scan.id} {scan.target} as CSV")
     return Response(
         scan_to_csv(scan),
         media_type="text/csv",
@@ -160,4 +162,5 @@ def scan_to_html(scan: Scan) -> str:
 def export_html(scan_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """A standalone HTML page the user can print or "Save as PDF"."""
     scan = get_own_scan(db, user, scan_id)
+    guard.log_activity(db, user, "scan_exported", f"#{scan.id} {scan.target} as report")
     return HTMLResponse(scan_to_html(scan), headers={"Content-Security-Policy": REPORT_CSP})

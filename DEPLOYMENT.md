@@ -106,6 +106,13 @@ All data (users, approved targets, scan history, activity log) is one SQLite fil
 docker compose cp backend:/data/sentinel.db ./sentinel-backup.db
 ```
 
+Every event is also appended to a plain-text log, `/data/activity.log`, in the same volume. Admins can download the full log as TXT or CSV from the Admin page. On the server:
+
+```bash
+docker compose exec backend tail -f /data/activity.log   # watch events live (Ctrl+C to stop)
+docker compose cp backend:/data/activity.log ./activity.log
+```
+
 ## 7. Moving to a VPS later
 
 The tunnel isn't tied to a machine: whichever computer runs `cloudflared` with the token serves the site. Moving takes no DNS changes.

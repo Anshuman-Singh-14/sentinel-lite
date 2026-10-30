@@ -1,21 +1,28 @@
-"""Admin routes: manage users, allowed scan targets, and view the activity log."""
+"""Admin routes: manage users, allowed scan targets, and view or download the activity log."""
 
+import csv
+import io
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.activity_log import format_line
 from backend.auth import hash_password, require_admin, user_to_dict
 from backend.db import get_db
 from backend.guard import log_activity
 from backend.models import Activity, AllowedTarget, User
+from backend.reports import safe_cell
 from backend.validation import Hostname, Password, Username
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-ACTIVITY_LIMIT = 200  # newest entries shown on the admin page
+ACTIVITY_LIMIT = 200  # newest entries shown on the admin page (the downloads have all of them)
+ACTIVITY_CSV_COLUMNS = ["id", "time_utc", "username", "action", "detail"]
 
 
 class NewUser(BaseModel):
@@ -137,3 +144,41 @@ def list_activity(admin: User = Depends(require_admin), db: Session = Depends(ge
         }
         for entry in entries
     ]
+
+
+def all_activity(db: Session):
+    """Every event ever recorded, oldest first, like a log file."""
+    return db.scalars(select(Activity).order_by(Activity.id))
+
+
+def activity_to_csv(entries) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(ACTIVITY_CSV_COLUMNS)
+    for entry in entries:
+        row = [str(entry.id), entry.created_at.strftime("%Y-%m-%d %H:%M:%S"), entry.username, entry.action,
+               entry.detail]
+        # safe_cell: a username like "=HYPERLINK(...)" typed at login must not run in Excel.
+        writer.writerow([safe_cell(cell) for cell in row])
+    # The byte-order mark makes Excel read the file as UTF-8 instead of guessing.
+    return "\ufeff" + output.getvalue()
+
+
+def download(content: str, media_type: str, extension: str) -> Response:
+    filename = f"sentinel-activity-{datetime.now(UTC):%Y-%m-%d}.{extension}"
+    return Response(content, media_type=media_type,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/activity/export.txt")
+def export_activity_txt(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    # Logged first, so the download itself shows up as the last line.
+    log_activity(db, admin, "activity_exported", "TXT")
+    text = "".join(format_line(entry) + "\n" for entry in all_activity(db))
+    return download(text, "text/plain; charset=utf-8", "txt")
+
+
+@router.get("/activity/export.csv")
+def export_activity_csv(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    log_activity(db, admin, "activity_exported", "CSV")
+    return download(activity_to_csv(all_activity(db)), "text/csv; charset=utf-8", "csv")

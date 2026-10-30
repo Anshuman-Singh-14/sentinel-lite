@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../api.js";
+import { api, apiUrl } from "../api.js";
 import { formatDate } from "../format.js";
 
 export default function AdminPage({ user }) {
@@ -208,10 +208,14 @@ function Activity() {
     <div className="admin-section">
       <h2>Activity log</h2>
       <p className="muted small">
-        The latest 200 events: logins, scans and admin changes.{" "}
+        The latest 200 events: logins, scans, downloads and admin changes. The downloads include every event.
+      </p>
+      <p className="small">
         <button type="button" className="link-button" onClick={activity.reload}>
           Refresh
-        </button>
+        </button>{" "}
+        · <a href={apiUrl("/api/admin/activity/export.txt")}>Download TXT</a> ·{" "}
+        <a href={apiUrl("/api/admin/activity/export.csv")}>Download CSV</a>
       </p>
       {activity.error && <p className="error">{activity.error}</p>}
       <table className="data">

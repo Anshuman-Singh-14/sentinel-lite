@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend import activity_log
 from backend.config import settings
 from backend.models import Activity, AllowedTarget, User
 
@@ -128,8 +129,11 @@ def check_login_rate(ip: str) -> None:
 
 
 def record(db: Session, username: str, action: str, detail: str = "") -> None:
-    db.add(Activity(username=username[:32], action=action, detail=detail[:300]))
+    """Save an event in the Activity table, then add it to the activity log file."""
+    entry = Activity(username=username[:32], action=action, detail=detail[:300])
+    db.add(entry)
     db.commit()
+    activity_log.append(entry)
 
 
 def log_activity(db: Session, user: User, action: str, detail: str = "") -> None:
