@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { api } from "./api.js";
 import Layout from "./components/Layout.jsx";
+import ActivityPage from "./pages/ActivityPage.jsx";
 import AdminPage from "./pages/AdminPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import DnsCheckPage from "./pages/DnsCheckPage.jsx";
@@ -50,6 +51,10 @@ export default function App() {
         <Route
           path="/admin"
           element={user.role === "admin" ? <AdminPage user={user} /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/admin/activity"
+          element={user.role === "admin" ? <ActivityPage /> : <Navigate to="/" />}
         />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

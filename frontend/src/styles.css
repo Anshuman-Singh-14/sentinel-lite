@@ -59,6 +59,13 @@ pre {
   padding: 1rem;
   display: flex;
   flex-direction: column;
+  /* Pinned to the screen so "Log out" stays visible on long pages. If the links ever
+     don't fit, the sidebar scrolls on its own. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .sidebar .brand {
@@ -111,6 +118,11 @@ pre {
   }
   .sidebar {
     width: auto;
+    /* On phones the sidebar sits above the page, so it shouldn't stick or fill the screen. */
+    position: static;
+    align-self: stretch;
+    height: auto;
+    overflow-y: visible;
   }
   .content {
     padding: 1rem;
@@ -418,4 +430,34 @@ code {
 
 .actions button {
   margin-right: 0.8rem;
+}
+
+/* The links above the activity log, in groups that wrap on narrow screens. */
+.log-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  margin: 0.75rem 0;
+}
+
+/* A table inside a box with its own scrollbar; the header row stays visible. */
+.table-scroll {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0.75rem 0;
+  background: var(--surface);
+}
+
+.table-scroll table {
+  margin: 0;
+}
+
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* Collapsed table borders don't move with a sticky cell, so draw the line here. */
+  box-shadow: inset 0 -1px var(--border);
 }

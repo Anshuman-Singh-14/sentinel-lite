@@ -1,11 +1,13 @@
-"""Admin routes: manage users, allowed scan targets, and view or download the activity log."""
+"""Admin routes: manage users, allowed scan targets, and view or download the activity log.
+
+The log exports take ?view=1 to open in a browser tab instead of downloading."""
 
 import csv
 import io
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -22,6 +24,7 @@ from backend.validation import Hostname, Password, Username
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ACTIVITY_LIMIT = 200  # newest entries shown on the admin page (the downloads have all of them)
+ACTIVITY_PAGE_MAX = 5000  # most entries the full-page log (/admin/activity) can ask for
 ACTIVITY_CSV_COLUMNS = ["id", "time_utc", "username", "action", "detail"]
 
 
@@ -131,9 +134,20 @@ def delete_target(target_id: int, admin: User = Depends(require_admin), db: Sess
 # --- Activity log ---
 
 
+# The log holds usernames and IP addresses, so browsers and proxies must not keep a copy.
+NO_STORE = {"Cache-Control": "no-store"}
+
+
 @router.get("/activity")
-def list_activity(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    entries = db.scalars(select(Activity).order_by(Activity.id.desc()).limit(ACTIVITY_LIMIT))
+def list_activity(
+    response: Response,
+    limit: int = Query(ACTIVITY_LIMIT, ge=1, le=ACTIVITY_PAGE_MAX),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The newest `limit` events, newest first."""
+    response.headers.update(NO_STORE)
+    entries = db.scalars(select(Activity).order_by(Activity.id.desc()).limit(limit))
     return [
         {
             "id": entry.id,
@@ -164,21 +178,37 @@ def activity_to_csv(entries) -> str:
     return "\ufeff" + output.getvalue()
 
 
-def download(content: str, media_type: str, extension: str) -> Response:
+def log_file_response(content: str, media_type: str, extension: str, view: bool) -> Response:
+    """A download (saved as a file) or, with view=True, a page the browser shows in the tab.
+
+    Views are always sent as text/plain: browsers download text/csv instead of showing it.
+    """
     filename = f"sentinel-activity-{datetime.now(UTC):%Y-%m-%d}.{extension}"
-    return Response(content, media_type=media_type,
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    disposition = "inline" if view else "attachment"
+    return Response(
+        content,
+        media_type="text/plain; charset=utf-8" if view else media_type,
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"', **NO_STORE},
+    )
+
+
+def log_export(db: Session, admin: User, file_type: str, view: bool) -> None:
+    # Logged first, so the view or download itself shows up as the last line.
+    log_activity(db, admin, "activity_viewed" if view else "activity_exported", file_type)
 
 
 @router.get("/activity/export.txt")
-def export_activity_txt(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    # Logged first, so the download itself shows up as the last line.
-    log_activity(db, admin, "activity_exported", "TXT")
+def export_activity_txt(
+    view: bool = False, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    log_export(db, admin, "TXT", view)
     text = "".join(format_line(entry) + "\n" for entry in all_activity(db))
-    return download(text, "text/plain; charset=utf-8", "txt")
+    return log_file_response(text, "text/plain; charset=utf-8", "txt", view)
 
 
 @router.get("/activity/export.csv")
-def export_activity_csv(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    log_activity(db, admin, "activity_exported", "CSV")
-    return download(activity_to_csv(all_activity(db)), "text/csv; charset=utf-8", "csv")
+def export_activity_csv(
+    view: bool = False, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    log_export(db, admin, "CSV", view)
+    return log_file_response(activity_to_csv(all_activity(db)), "text/csv; charset=utf-8", "csv", view)

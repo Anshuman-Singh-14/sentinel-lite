@@ -1,5 +1,7 @@
 from conftest import PASSWORD
 
+from backend.models import Activity
+
 
 def test_admin_creates_user_who_can_log_in(admin_client):
     weak = admin_client.post("/api/admin/users", json={"username": "bob", "password": "short"})
@@ -34,3 +36,20 @@ def test_activity_log_records_logins_and_admin_actions(admin_client):
     admin_client.post("/api/admin/targets", json={"host": "example.com"})
     actions = [entry["action"] for entry in admin_client.get("/api/admin/activity").json()]
     assert actions == ["target_added", "login"]  # newest first
+
+
+def test_activity_list_takes_a_limit(admin_client, db):
+    db.add_all(Activity(username="admin", action="login", detail=f"event {n}") for n in range(300))
+    db.commit()
+    assert len(admin_client.get("/api/admin/activity").json()) == 200  # the admin page default
+    assert len(admin_client.get("/api/admin/activity?limit=5000").json()) == 301  # 300 + the real login
+    assert len(admin_client.get("/api/admin/activity?limit=10").json()) == 10
+    assert admin_client.get("/api/admin/activity?limit=0").status_code == 422
+    assert admin_client.get("/api/admin/activity?limit=5001").status_code == 422
+
+
+def test_only_admins_can_list_activity(client, user_client):
+    assert user_client.get("/api/admin/activity").status_code == 403
+    assert user_client.get("/api/admin/activity?limit=5000").status_code == 403
+    user_client.post("/api/auth/logout")
+    assert client.get("/api/admin/activity?limit=5000").status_code == 401
