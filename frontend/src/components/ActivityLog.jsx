@@ -24,6 +24,14 @@ export default function ActivityLog({ limit, boxed = false, showOpenLink = false
             </a>
           </>
         )}{" "}
+        ·{" "}
+        <a href={apiUrl("/api/admin/activity/export.txt?view=1")} target="_blank" rel="noopener">
+          View TXT ↗
+        </a>{" "}
+        ·{" "}
+        <a href={apiUrl("/api/admin/activity/export.csv?view=1")} target="_blank" rel="noopener">
+          View CSV ↗
+        </a>{" "}
         · <a href={apiUrl("/api/admin/activity/export.txt")}>Download TXT</a> ·{" "}
         <a href={apiUrl("/api/admin/activity/export.csv")}>Download CSV</a>
       </p>

@@ -53,3 +53,56 @@ def test_admin_downloads_every_event_as_csv(client, make_user):
 def test_only_admins_can_download_the_activity_log(user_client):
     assert user_client.get("/api/admin/activity/export.txt").status_code == 403
     assert user_client.get("/api/admin/activity/export.csv").status_code == 403
+
+
+def test_admin_views_the_log_in_the_browser(admin_client):
+    txt = admin_client.get("/api/admin/activity/export.txt?view=1")
+    assert txt.status_code == 200
+    assert txt.headers["content-type"] == "text/plain; charset=utf-8"
+    assert txt.headers["content-disposition"].startswith('inline; filename="sentinel-activity-')
+    assert txt.text.splitlines()[-1].endswith("| admin | activity_viewed | TXT")
+
+    # Sent as text/plain, otherwise the browser would download the CSV instead of showing it.
+    csv_view = admin_client.get("/api/admin/activity/export.csv?view=1")
+    assert csv_view.status_code == 200
+    assert csv_view.headers["content-type"] == "text/plain; charset=utf-8"
+    assert csv_view.headers["content-disposition"].startswith("inline; ")
+    rows = list(csv.reader(io.StringIO(csv_view.content.decode("utf-8-sig"))))
+    assert rows[0] == ["id", "time_utc", "username", "action", "detail"]
+    assert [row[3] for row in rows[1:]] == ["login", "activity_viewed", "activity_viewed"]
+
+
+def test_downloads_are_unchanged_and_views_are_separate(admin_client):
+    txt = admin_client.get("/api/admin/activity/export.txt")
+    assert txt.headers["content-type"] == "text/plain; charset=utf-8"
+    assert txt.headers["content-disposition"].startswith("attachment; ")
+    csv_download = admin_client.get("/api/admin/activity/export.csv")
+    assert csv_download.headers["content-type"] == "text/csv; charset=utf-8"
+    assert csv_download.headers["content-disposition"].startswith("attachment; ")
+    assert txt.headers["content-disposition"].split("filename=")[1].rstrip('"').endswith(".txt")
+    assert csv_download.headers["content-disposition"].split("filename=")[1].rstrip('"').endswith(".csv")
+
+
+def test_the_log_is_never_cached(admin_client):
+    for url in [
+        "/api/admin/activity",
+        "/api/admin/activity?limit=5000",
+        "/api/admin/activity/export.txt",
+        "/api/admin/activity/export.csv",
+        "/api/admin/activity/export.txt?view=1",
+        "/api/admin/activity/export.csv?view=1",
+    ]:
+        assert admin_client.get(url).headers["cache-control"] == "no-store", url
+
+
+def test_only_admins_can_view_the_activity_log(client, user_client):
+    assert user_client.get("/api/admin/activity/export.txt?view=1").status_code == 403
+    assert user_client.get("/api/admin/activity/export.csv?view=1").status_code == 403
+    user_client.post("/api/auth/logout")
+    for url in [
+        "/api/admin/activity/export.txt",
+        "/api/admin/activity/export.csv",
+        "/api/admin/activity/export.txt?view=1",
+        "/api/admin/activity/export.csv?view=1",
+    ]:
+        assert client.get(url).status_code == 401, url
