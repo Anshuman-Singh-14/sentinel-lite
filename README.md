@@ -1,3 +1,14 @@
+
+<p align="center">
+  <img src="docs/logo.svg" width="120" alt="Sentinel Lite logo">
+</p>
+
+<h1 align="center">Sentinel Lite</h1>
+
+<p align="center">Lightweight network &amp; security toolkit</p>
+
+
+
 # Sentinel Lite
 
 A small **defensive** security toolkit for learning. It runs simple checks on systems you are allowed to test, then explains every finding in plain language: what was found, how serious it is, and how to fix it.
