@@ -11,35 +11,51 @@ export default function ActivityLog({ limit, boxed = false, showOpenLink = false
   const activity = useList(`/api/admin/activity?limit=${limit}`);
   return (
     <>
-      <p className="small">
-        <button type="button" className="link-button" onClick={activity.reload}>
-          Refresh
-        </button>
-        {showOpenLink && (
-          <>
-            {" "}
-            ·{" "}
-            <a href="/admin/activity" target="_blank" rel="noopener">
-              Open in new tab ↗
-            </a>
-          </>
-        )}{" "}
-        ·{" "}
-        <a href={apiUrl("/api/admin/activity/export.txt?view=1")} target="_blank" rel="noopener">
-          View TXT ↗
-        </a>{" "}
-        ·{" "}
-        <a href={apiUrl("/api/admin/activity/export.csv?view=1")} target="_blank" rel="noopener">
-          View CSV ↗
-        </a>{" "}
-        · <a href={apiUrl("/api/admin/activity/export.txt")}>Download TXT</a> ·{" "}
-        <a href={apiUrl("/api/admin/activity/export.csv")}>Download CSV</a>
-      </p>
+      <ActivityToolbar onRefresh={activity.reload} showOpenLink={showOpenLink} />
       {activity.error && <p className="error">{activity.error}</p>}
       <div className={boxed ? "table-scroll" : undefined}>
         <ActivityTable entries={activity.items} error={activity.error} />
       </div>
     </>
+  );
+}
+
+// Three small groups of links (page actions, views, downloads) that wrap on narrow screens.
+// Views and "Open in new tab" open a new tab; downloads save a file.
+function ActivityToolbar({ onRefresh, showOpenLink }) {
+  const txt = apiUrl("/api/admin/activity/export.txt");
+  const csv = apiUrl("/api/admin/activity/export.csv");
+  return (
+    <div className="log-toolbar small">
+      <span>
+        <button type="button" className="link-button" onClick={onRefresh}>
+          Refresh
+        </button>
+        {showOpenLink && (
+          <>
+            {" · "}
+            <a href="/admin/activity" target="_blank" rel="noopener">
+              Open in new tab ↗
+            </a>
+          </>
+        )}
+      </span>
+      <span>
+        <span className="muted">View:</span>{" "}
+        <a href={`${txt}?view=1`} target="_blank" rel="noopener">
+          TXT ↗
+        </a>
+        {" · "}
+        <a href={`${csv}?view=1`} target="_blank" rel="noopener">
+          CSV ↗
+        </a>
+      </span>
+      <span>
+        <span className="muted">Download:</span> <a href={txt}>TXT</a>
+        {" · "}
+        <a href={csv}>CSV</a>
+      </span>
+    </div>
   );
 }
 

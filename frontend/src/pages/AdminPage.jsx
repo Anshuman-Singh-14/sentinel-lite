@@ -195,7 +195,8 @@ function Activity() {
     <div className="admin-section">
       <h2>Activity log</h2>
       <p className="muted small">
-        The latest 200 events: logins, scans, downloads and admin changes. The downloads include every event.
+        The latest 200 events: logins, scans, downloads and admin changes. Open the full log in a new tab, or view
+        or download it as TXT or CSV to see every event.
       </p>
       <ActivityLog limit={200} boxed showOpenLink />
     </div>
