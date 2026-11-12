@@ -5,7 +5,7 @@ import io
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -22,6 +22,7 @@ from backend.validation import Hostname, Password, Username
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ACTIVITY_LIMIT = 200  # newest entries shown on the admin page (the downloads have all of them)
+ACTIVITY_PAGE_MAX = 5000  # most entries the full-page log (/admin/activity) can ask for
 ACTIVITY_CSV_COLUMNS = ["id", "time_utc", "username", "action", "detail"]
 
 
@@ -132,8 +133,13 @@ def delete_target(target_id: int, admin: User = Depends(require_admin), db: Sess
 
 
 @router.get("/activity")
-def list_activity(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    entries = db.scalars(select(Activity).order_by(Activity.id.desc()).limit(ACTIVITY_LIMIT))
+def list_activity(
+    limit: int = Query(ACTIVITY_LIMIT, ge=1, le=ACTIVITY_PAGE_MAX),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The newest `limit` events, newest first."""
+    entries = db.scalars(select(Activity).order_by(Activity.id.desc()).limit(limit))
     return [
         {
             "id": entry.id,

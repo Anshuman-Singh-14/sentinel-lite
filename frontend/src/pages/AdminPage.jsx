@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, apiUrl } from "../api.js";
-import { formatDate } from "../format.js";
+import { useState } from "react";
+import { api } from "../api.js";
+import ActivityLog from "../components/ActivityLog.jsx";
+import { useList } from "../useList.js";
 
 export default function AdminPage({ user }) {
   return (
@@ -11,19 +12,6 @@ export default function AdminPage({ user }) {
       <Activity />
     </section>
   );
-}
-
-// Loads a list from the API and gives back a function to reload it after a change.
-function useList(path) {
-  const [items, setItems] = useState([]);
-  const [error, setError] = useState("");
-  const reload = useCallback(() => {
-    api(path)
-      .then(setItems)
-      .catch((err) => setError(err.message));
-  }, [path]);
-  useEffect(reload, [reload]);
-  return { items, error, setError, reload };
 }
 
 function Targets() {
@@ -203,51 +191,13 @@ function Users({ currentUser }) {
 }
 
 function Activity() {
-  const activity = useList("/api/admin/activity");
   return (
     <div className="admin-section">
       <h2>Activity log</h2>
       <p className="muted small">
         The latest 200 events: logins, scans, downloads and admin changes. The downloads include every event.
       </p>
-      <p className="small">
-        <button type="button" className="link-button" onClick={activity.reload}>
-          Refresh
-        </button>{" "}
-        · <a href={apiUrl("/api/admin/activity/export.txt")}>Download TXT</a> ·{" "}
-        <a href={apiUrl("/api/admin/activity/export.csv")}>Download CSV</a>
-      </p>
-      {activity.error && <p className="error">{activity.error}</p>}
-      {/* A fixed-height box, so 200 rows don't make the page very long. */}
-      <div className="table-scroll">
-        <table className="data">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>User</th>
-              <th>Action</th>
-              <th>Details</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activity.items.map((entry) => (
-              <tr key={entry.id}>
-                <td>{formatDate(entry.created_at)}</td>
-                <td>{entry.username}</td>
-                <td>{entry.action.replaceAll("_", " ")}</td>
-                <td>{entry.detail}</td>
-              </tr>
-            ))}
-            {activity.items.length === 0 && !activity.error && (
-              <tr>
-                <td colSpan={4} className="muted">
-                  No activity yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <ActivityLog limit={200} boxed showOpenLink />
     </div>
   );
 }
