@@ -431,3 +431,25 @@ code {
 .actions button {
   margin-right: 0.8rem;
 }
+
+/* A table inside a box with its own scrollbar; the header row stays visible. */
+.table-scroll {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0.75rem 0;
+  background: var(--surface);
+}
+
+.table-scroll table {
+  margin: 0;
+}
+
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* Collapsed table borders don't move with a sticky cell, so draw the line here. */
+  box-shadow: inset 0 -1px var(--border);
+}

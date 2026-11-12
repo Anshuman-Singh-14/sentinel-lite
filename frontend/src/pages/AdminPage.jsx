@@ -218,26 +218,36 @@ function Activity() {
         <a href={apiUrl("/api/admin/activity/export.csv")}>Download CSV</a>
       </p>
       {activity.error && <p className="error">{activity.error}</p>}
-      <table className="data">
-        <thead>
-          <tr>
-            <th>When</th>
-            <th>User</th>
-            <th>Action</th>
-            <th>Details</th>
-          </tr>
-        </thead>
-        <tbody>
-          {activity.items.map((entry) => (
-            <tr key={entry.id}>
-              <td>{formatDate(entry.created_at)}</td>
-              <td>{entry.username}</td>
-              <td>{entry.action.replaceAll("_", " ")}</td>
-              <td>{entry.detail}</td>
+      {/* A fixed-height box, so 200 rows don't make the page very long. */}
+      <div className="table-scroll">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>User</th>
+              <th>Action</th>
+              <th>Details</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {activity.items.map((entry) => (
+              <tr key={entry.id}>
+                <td>{formatDate(entry.created_at)}</td>
+                <td>{entry.username}</td>
+                <td>{entry.action.replaceAll("_", " ")}</td>
+                <td>{entry.detail}</td>
+              </tr>
+            ))}
+            {activity.items.length === 0 && !activity.error && (
+              <tr>
+                <td colSpan={4} className="muted">
+                  No activity yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
