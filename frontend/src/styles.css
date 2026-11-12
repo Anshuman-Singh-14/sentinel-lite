@@ -59,6 +59,13 @@ pre {
   padding: 1rem;
   display: flex;
   flex-direction: column;
+  /* Pinned to the screen so "Log out" stays visible on long pages. If the links ever
+     don't fit, the sidebar scrolls on its own. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .sidebar .brand {
@@ -111,6 +118,11 @@ pre {
   }
   .sidebar {
     width: auto;
+    /* On phones the sidebar sits above the page, so it shouldn't stick or fill the screen. */
+    position: static;
+    align-self: stretch;
+    height: auto;
+    overflow-y: visible;
   }
   .content {
     padding: 1rem;
