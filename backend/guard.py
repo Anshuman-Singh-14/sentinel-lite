@@ -93,16 +93,31 @@ class RateLimiter:
         self.events: dict[object, deque] = defaultdict(deque)
         self.lock = threading.Lock()  # FastAPI may call this from several threads at once
 
+    def _recent(self, key: object, now: float) -> deque:
+        events = self.events[key]
+        while events and now - events[0] >= self.window:
+            events.popleft()  # forget events older than the window
+        return events
+
     def allow(self, key: object) -> bool:
+        """Check and count in one step: True (and counted) if the key is under its limit."""
         now = time.monotonic()
         with self.lock:
-            events = self.events[key]
-            while events and now - events[0] >= self.window:
-                events.popleft()  # forget events older than the window
+            events = self._recent(key, now)
             if len(events) >= self.limit:
                 return False
             events.append(now)
             return True
+
+    def is_full(self, key: object) -> bool:
+        """Check without counting, for limits that only count successes (see add())."""
+        with self.lock:
+            return len(self._recent(key, time.monotonic())) >= self.limit
+
+    def add(self, key: object) -> None:
+        """Count one event without checking, e.g. after a request has succeeded."""
+        with self.lock:
+            self.events[key].append(time.monotonic())
 
     def reset(self) -> None:
         with self.lock:
@@ -139,3 +154,9 @@ def record(db: Session, username: str, action: str, detail: str = "") -> None:
 def log_activity(db: Session, user: User, action: str, detail: str = "") -> None:
     """Record who did what in the Activity table (shown to admins)."""
     record(db, user.username, action, detail)
+
+
+def mask_email(email: str) -> str:
+    """alice@gmail.com -> a***@gmail.com. Full email addresses never go in the activity log."""
+    name, _, domain = email.partition("@")
+    return f"{name[:1]}***@{domain}"

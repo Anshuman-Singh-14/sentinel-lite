@@ -98,12 +98,18 @@ pre {
   color: #fff;
 }
 
+/* Name and role on the first line, then the two links, neither of which wraps. */
 .account {
   margin-top: auto;
   padding-top: 1rem;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.35rem;
   font-size: 0.9rem;
+}
+
+.account-name {
+  overflow-wrap: anywhere;
 }
 
 .content {
@@ -208,6 +214,17 @@ button:disabled {
   color: inherit;
   padding: 0;
   text-decoration: underline;
+}
+
+/* A secondary button for actions like Reject: same size as a normal button, red outline. */
+button.danger {
+  background: var(--surface);
+  color: var(--high);
+  box-shadow: inset 0 0 0 1px var(--high);
+}
+
+.nowrap {
+  white-space: nowrap;
 }
 
 /* --- Login --- */
@@ -460,4 +477,118 @@ code {
   z-index: 1;
   /* Collapsed table borders don't move with a sticky cell, so draw the line here. */
   box-shadow: inset 0 -1px var(--border);
+}
+
+/* --- Account requests, password changes --- */
+
+.login .card.wide {
+  max-width: 560px;
+}
+
+.card.narrow {
+  width: 100%;
+  max-width: 420px;
+}
+
+.account-links {
+  display: flex;
+  gap: 0.8rem;
+  white-space: nowrap;
+}
+
+.account-links a {
+  color: inherit;
+}
+
+.password-meter {
+  margin: -0.4rem 0 0.8rem;
+}
+
+.password-meter p {
+  margin: 0.3rem 0 0;
+}
+
+.counter {
+  display: block;
+  text-align: right;
+  font-weight: normal;
+}
+
+/* The agreement: its own scroll box so the form stays short. */
+.terms {
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-line;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.9rem;
+  background: var(--bg);
+}
+
+.turnstile {
+  margin-bottom: 0.8rem;
+  min-height: 65px; /* the widget's height, so the button doesn't jump when it appears */
+}
+
+.banner {
+  margin-bottom: 1.5rem;
+}
+
+.banner p {
+  margin-top: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.3rem;
+  border-bottom: 1px solid var(--border);
+  margin: 0.75rem 0;
+}
+
+.tab {
+  background: none;
+  color: var(--muted);
+  border-radius: 6px 6px 0 0;
+  border-bottom: 2px solid transparent;
+}
+
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.count-badge {
+  display: inline-block;
+  min-width: 1.4rem;
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1.4rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Only for things waiting on an admin, like pending account requests. */
+.count-badge.alert {
+  background: var(--high);
+  color: #fff;
+}
+
+/* The account requests table keeps its columns readable; on narrow screens the
+   .table-scroll box around it scrolls sideways instead. */
+table.requests {
+  min-width: 860px;
+}
+
+.remarks {
+  min-width: 160px;
+  max-width: 260px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }

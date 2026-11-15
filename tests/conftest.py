@@ -15,7 +15,7 @@ os.environ["ALLOWED_ORIGINS"] = "https://app.example.com"  # turns on CORS (see 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from backend import guard  # noqa: E402
+from backend import access_requests, guard, mailer  # noqa: E402
 from backend.app import app  # noqa: E402
 from backend.auth import hash_password  # noqa: E402
 from backend.db import Base, SessionLocal, engine  # noqa: E402
@@ -38,6 +38,20 @@ def reset_rate_limits():
     """Rate limits live in memory, so clear them or one test's requests count against the next."""
     guard.scan_limiter.reset()
     guard.login_limiter.reset()
+    access_requests.request_limiter.reset()
+    access_requests.attempt_limiter.reset()
+    access_requests.email_limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def outbox(monkeypatch):
+    """No real network in tests: emails land in this list instead of an SMTP server,
+    and the Turnstile check passes only for the token "pass"."""
+    sent = []
+    monkeypatch.setattr(mailer, "send", lambda to, subject, body: sent.append({"to": to, "subject": subject,
+                                                                                 "body": body}))
+    monkeypatch.setattr(access_requests, "verify_turnstile", lambda token, ip: token == "pass")
+    return sent
 
 
 @pytest.fixture

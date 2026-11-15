@@ -16,6 +16,15 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       DATABASE_PATH: /data/sentinel.db
       ACTIVITY_LOG_PATH: /data/activity.log  # in the volume, so it survives rebuilds
+      # Email and account requests. Left empty, the "Request credentials" form is switched off.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: "${MAIL_FROM:-Sentinel Lite <no-reply@sentinellite.com>}"
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
     volumes:
       - sentinel-data:/data
     networks: [sentinel]

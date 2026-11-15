@@ -43,12 +43,15 @@ export default function Layout({ user, onLogout, children }) {
           </nav>
         ))}
         <div className="account">
-          <span>
+          <span className="account-name">
             {user.username} ({user.role})
           </span>
-          <button type="button" className="link-button" onClick={onLogout}>
-            Log out
-          </button>
+          <span className="account-links">
+            <NavLink to="/account/password">Change password</NavLink>
+            <button type="button" className="link-button" onClick={onLogout}>
+              Log out
+            </button>
+          </span>
         </div>
       </aside>
       <main className="content">{children}</main>

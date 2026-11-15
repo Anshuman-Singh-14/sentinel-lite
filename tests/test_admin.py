@@ -4,17 +4,57 @@ from backend.models import Activity
 
 
 def test_admin_creates_user_who_can_log_in(admin_client):
-    weak = admin_client.post("/api/admin/users", json={"username": "bob", "password": "short"})
+    weak = admin_client.post("/api/admin/users", json={"username": "bob", "password": "short", "email": "b@x.com"})
     assert weak.status_code == 422
-    response = admin_client.post("/api/admin/users", json={"username": "bob", "password": PASSWORD})
+    response = admin_client.post(
+        "/api/admin/users", json={"username": "bob", "password": PASSWORD, "email": "Bob@Example.com"}
+    )
     assert response.status_code == 200
     assert response.json()["role"] == "user"
+    assert response.json()["email"] == "bob@example.com"  # stored lowercased
     usernames = [user["username"] for user in admin_client.get("/api/admin/users").json()]
     assert usernames == ["admin", "bob"]
 
     admin_client.post("/api/auth/logout")
     login = admin_client.post("/api/auth/login", json={"username": "bob", "password": PASSWORD})
     assert login.status_code == 200
+
+
+def test_email_is_required_for_users_but_not_admins(admin_client):
+    no_email = admin_client.post("/api/admin/users", json={"username": "bob", "password": PASSWORD})
+    assert no_email.status_code == 422
+    bad_email = admin_client.post("/api/admin/users", json={"username": "bob", "password": PASSWORD, "email": "nope"})
+    assert bad_email.status_code == 422
+    admin = admin_client.post("/api/admin/users", json={"username": "root2", "password": PASSWORD, "role": "admin"})
+    assert admin.status_code == 200
+    assert admin.json()["has_email"] is False
+
+    # Turning an admin without an email into a user needs an email first.
+    admin_id = admin.json()["id"]
+    assert admin_client.patch(f"/api/admin/users/{admin_id}", json={"role": "user"}).status_code == 400
+    changed = admin_client.patch(f"/api/admin/users/{admin_id}", json={"role": "user", "email": "r@x.com"})
+    assert changed.status_code == 200
+    assert changed.json()["email"] == "r@x.com"
+
+
+def test_emails_are_unique(admin_client):
+    admin_client.post("/api/admin/users", json={"username": "bob", "password": PASSWORD, "email": "b@x.com"})
+    same = admin_client.post("/api/admin/users", json={"username": "eve", "password": PASSWORD, "email": "B@x.com"})
+    assert same.status_code == 409
+
+
+def test_existing_users_without_email_can_still_be_changed(admin_client, make_user):
+    old = make_user("old")  # created before emails existed
+    assert admin_client.patch(f"/api/admin/users/{old.id}", json={"is_active": False}).status_code == 200
+
+
+def test_password_reset_forces_a_change(admin_client, make_user):
+    bob = make_user("bob")
+    admin_client.patch(f"/api/admin/users/{bob.id}", json={"password": "reset-by-admin-1"})
+    admin_client.post("/api/auth/logout")
+    login = admin_client.post("/api/auth/login", json={"username": "bob", "password": "reset-by-admin-1"})
+    assert login.json()["must_change_password"] is True
+    assert admin_client.get("/api/scans").json() == {"detail": "password_change_required"}
 
 
 def test_admin_cannot_demote_themselves(admin_client):
