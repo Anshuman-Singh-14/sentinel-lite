@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from backend import admin, auth, reports
+from backend import access_requests, admin, auth, reports
 from backend.auth import hash_password
 from backend.config import ROOT, settings
 from backend.db import SessionLocal, init_db
@@ -62,6 +62,7 @@ def seed_admin_user():
 async def lifespan(_app: FastAPI):
     init_db()
     seed_admin_user()
+    access_requests.delete_stale_requests_now()
     yield
 
 
@@ -112,6 +113,7 @@ async def add_security_headers(request: Request, call_next):
 
 
 app.include_router(auth.router)
+app.include_router(access_requests.router)
 app.include_router(admin.router)
 app.include_router(reports.router)
 for tool in TOOLS.values():
