@@ -98,12 +98,18 @@ pre {
   color: #fff;
 }
 
+/* Name and role on the first line, then the two links, neither of which wraps. */
 .account {
   margin-top: auto;
   padding-top: 1rem;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.35rem;
   font-size: 0.9rem;
+}
+
+.account-name {
+  overflow-wrap: anywhere;
 }
 
 .content {
@@ -208,6 +214,17 @@ button:disabled {
   color: inherit;
   padding: 0;
   text-decoration: underline;
+}
+
+/* A secondary button for actions like Reject: same size as a normal button, red outline. */
+button.danger {
+  background: var(--surface);
+  color: var(--high);
+  box-shadow: inset 0 0 0 1px var(--high);
+}
+
+.nowrap {
+  white-space: nowrap;
 }
 
 /* --- Login --- */
@@ -476,6 +493,7 @@ code {
 .account-links {
   display: flex;
   gap: 0.8rem;
+  white-space: nowrap;
 }
 
 .account-links a {
@@ -548,16 +566,29 @@ code {
   margin-left: 0.4rem;
   padding: 0 0.4rem;
   border-radius: 999px;
-  background: var(--high);
-  color: #fff;
+  background: var(--border);
+  color: var(--text);
   font-size: 0.75rem;
   line-height: 1.4rem;
   text-align: center;
   vertical-align: middle;
 }
 
+/* Only for things waiting on an admin, like pending account requests. */
+.count-badge.alert {
+  background: var(--high);
+  color: #fff;
+}
+
+/* The account requests table keeps its columns readable; on narrow screens the
+   .table-scroll box around it scrolls sideways instead. */
+table.requests {
+  min-width: 860px;
+}
+
 .remarks {
+  min-width: 160px;
   max-width: 260px;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }

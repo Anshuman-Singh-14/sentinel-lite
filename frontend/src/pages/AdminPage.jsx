@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api.js";
 import ActivityLog from "../components/ActivityLog.jsx";
-import { formatDate } from "../format.js";
+import { formatDate, formatShortDate } from "../format.js";
 import { useList } from "../useList.js";
 
 export default function AdminPage({ user }) {
@@ -16,7 +16,8 @@ export default function AdminPage({ user }) {
   );
 }
 
-// A row of tab buttons; `count` (optional) is shown as a small badge.
+// A row of tab buttons; `count` (optional) is shown as a small grey badge, or a red one
+// when the tab has `alert: true` (things waiting for an admin).
 function Tabs({ tabs, value, onChange }) {
   return (
     <div className="tabs" role="tablist">
@@ -30,7 +31,7 @@ function Tabs({ tabs, value, onChange }) {
           onClick={() => onChange(tab.value)}
         >
           {tab.label}
-          {tab.count > 0 && <span className="count-badge">{tab.count}</span>}
+          {tab.count > 0 && <span className={tab.alert ? "count-badge alert" : "count-badge"}>{tab.count}</span>}
         </button>
       ))}
     </div>
@@ -67,7 +68,8 @@ function AccessRequests() {
   return (
     <div className="admin-section">
       <h2>
-        Account requests {pending.items.length > 0 && <span className="count-badge">{pending.items.length}</span>}
+        Account requests{" "}
+        {pending.items.length > 0 && <span className="count-badge alert">{pending.items.length}</span>}
       </h2>
       <p className="muted small">
         Requests appear here once the visitor has confirmed their email. Approving creates the account and emails
@@ -77,7 +79,7 @@ function AccessRequests() {
         value={status}
         onChange={setStatus}
         tabs={[
-          { value: "pending", label: "Pending", count: pending.items.length },
+          { value: "pending", label: "Pending", count: pending.items.length, alert: true },
           { value: "approved", label: "Approved" },
           { value: "rejected", label: "Rejected" },
         ]}
@@ -85,7 +87,7 @@ function AccessRequests() {
       {shown.error && <p className="error">{shown.error}</p>}
       {pending.error && <p className="error">{pending.error}</p>}
       <div className="table-scroll">
-        <table className="data">
+        <table className="data requests">
           <thead>
             <tr>
               <th>Username</th>
@@ -95,7 +97,7 @@ function AccessRequests() {
               <th>Submitted</th>
               <th>IP</th>
               {status !== "pending" && <th>Decision</th>}
-              <th>Email</th>
+              <th>Email status</th>
               <th />
             </tr>
           </thead>
@@ -111,29 +113,31 @@ function AccessRequests() {
               <tr key={request.id}>
                 <td>{request.username}</td>
                 <td>{request.email}</td>
-                <td>{request.wants_generated ? "generate one" : "chose own"}</td>
+                <td className="nowrap">{request.wants_generated ? "generate one" : "chose own"}</td>
                 <td className="remarks">{request.remarks || <span className="muted">none</span>}</td>
-                <td>{formatDate(request.created_at)}</td>
-                <td>
+                <td className="nowrap" title={formatDate(request.created_at)}>
+                  {formatShortDate(request.created_at)}
+                </td>
+                <td className="nowrap">
                   <code>{request.ip}</code>
                 </td>
                 {status !== "pending" && (
                   <td>
-                    by {request.reviewed_by}
-                    {request.reject_reason && <div className="muted small">{request.reject_reason}</div>}
+                    <span className="nowrap">by {request.reviewed_by}</span>
+                    {request.reject_reason && <div className="muted small">Reason: {request.reject_reason}</div>}
                   </td>
                 )}
-                <td>
+                <td className="nowrap">
                   {EMAIL_STATUS[request.email_status]}
                   {request.email_error && <div className="error small">{request.email_error}</div>}
                 </td>
-                <td className="actions">
+                <td className="actions nowrap">
                   {request.status === "pending" && (
                     <>
                       <button type="button" onClick={() => approve(request)}>
                         Approve
                       </button>
-                      <button type="button" className="link-button" onClick={() => reject(request)}>
+                      <button type="button" className="danger" onClick={() => reject(request)}>
                         Reject
                       </button>
                     </>

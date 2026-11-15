@@ -43,7 +43,7 @@ export default function Layout({ user, onLogout, children }) {
           </nav>
         ))}
         <div className="account">
-          <span>
+          <span className="account-name">
             {user.username} ({user.role})
           </span>
           <span className="account-links">
