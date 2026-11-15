@@ -34,7 +34,14 @@ def send(to: str, subject: str, body: str) -> None:
     if not settings.smtp_host:
         if settings.is_prod:
             raise MailError("SMTP is not configured")
-        print(f"\n----- email (not sent: SMTP_HOST is empty) -----\n{message}\n-----", flush=True)
+        # Headers plus the decoded body, not the raw MIME text: that is quoted-printable,
+        # which splits long links and turns "=" into "=3D".
+        print(
+            "\n----- email (not sent: SMTP_HOST is empty) -----\n"
+            f"From: {message['From']}\nTo: {message['To']}\nSubject: {message['Subject']}\n\n"
+            f"{message.get_content()}-----",
+            flush=True,
+        )
         return
 
     try:

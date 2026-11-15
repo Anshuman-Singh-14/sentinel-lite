@@ -127,12 +127,28 @@ def test_old_unverified_requests_are_deleted(client, db):
     assert [r.email for r in db.query(AccessRequest)] == ["second@example.com"]
 
 
-def test_rate_limit_is_three_per_hour_per_ip(client):
+def test_rate_limit_is_three_created_requests_per_hour_per_ip(client):
     statuses = [
         client.post("/api/access-requests", json=body(username=f"user{n}", email=f"u{n}@example.com")).status_code
         for n in range(4)
     ]
     assert statuses == [200, 200, 200, 429]
+
+
+def test_refused_attempts_do_not_use_up_the_request_limit(client, make_user):
+    make_user("alice")
+    for _ in range(3):
+        assert client.post("/api/access-requests", json=body(username="alice")).status_code == 409
+    assert client.post("/api/access-requests", json=body()).status_code == 200
+
+
+def test_every_attempt_counts_towards_twenty_per_hour(client):
+    attempts = [body(turnstile_token="bot"), body(agree=False), body(email="not-an-email")]
+    for n in range(20):
+        assert client.post("/api/access-requests", json=attempts[n % 3]).status_code in (400, 422)
+    refused = client.post("/api/access-requests", json=body())
+    assert refused.status_code == 429
+    assert "Too many" in refused.json()["detail"]
 
 
 def test_prod_without_smtp_or_turnstile_disables_requests(client, monkeypatch):
@@ -147,6 +163,21 @@ def test_prod_without_smtp_or_turnstile_disables_requests(client, monkeypatch):
                         ("turnstile_secret_key", "secret"), ("public_url", "https://sentinellite.com")]:
         monkeypatch.setattr(settings, name, value)
     assert client.get("/api/access-requests/config").json()["enabled"] is True
+
+
+def test_dev_console_email_shows_the_link_unbroken(monkeypatch, capsys):
+    monkeypatch.setattr(settings, "smtp_host", "")
+    verify_link = f"{settings.public_base_url}/verify-email?token=" + "Ab_-" * 11  # longer than a 78-char line
+    real_send("newbie@example.com", *mailer.verify_request("newbie", verify_link))
+    printed = capsys.readouterr().out
+    assert verify_link in printed.splitlines()
+    assert "To: newbie@example.com" in printed and "Subject: Confirm your email for Sentinel Lite" in printed
+    assert "=3D" not in printed and "=20" not in printed
+
+
+def test_dev_links_use_the_address_run_py_opens(monkeypatch):
+    monkeypatch.setattr(settings, "public_url", "")
+    assert settings.public_base_url == "http://127.0.0.1:8000"
 
 
 def test_mailer_errors_never_contain_secrets(monkeypatch):

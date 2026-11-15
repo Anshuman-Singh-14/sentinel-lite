@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 
     @property
     def public_base_url(self) -> str:
-        return (self.public_url or "http://localhost:8000").rstrip("/")
+        return (self.public_url or "http://127.0.0.1:8000").rstrip("/")
 
     @property
     def turnstile_keys(self) -> tuple[str, str]:

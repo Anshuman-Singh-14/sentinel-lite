@@ -54,7 +54,10 @@ OPEN_STATUSES = ("unverified", "pending")
 CHECK_EMAIL = "Thanks! Check your email and open the link to confirm your request."
 UNAVAILABLE = "Account requests are not available right now"
 
-request_limiter = guard.RateLimiter(3, window=3600)  # account requests per IP per hour
+# Two limits per IP per hour: 3 requests that were actually created, and 20 attempts of
+# any kind, so typos and taken usernames don't lock people out but the form can't be hammered.
+request_limiter = guard.RateLimiter(3, window=3600)
+attempt_limiter = guard.RateLimiter(20, window=3600)
 email_limiter = guard.RateLimiter(3, window=3600)  # "add my email" links per user per hour
 
 
@@ -192,15 +195,29 @@ def request_config():
     }
 
 
+TOO_MANY = "Too many account requests from your network. Please try again in an hour."
+
+
+def count_attempt(request: Request) -> str:
+    """Counts every attempt, even ones with an invalid body: FastAPI runs dependencies
+    before it validates the body. Returns the client's IP."""
+    ip = client_ip(request)
+    if not attempt_limiter.allow(ip):
+        raise HTTPException(429, TOO_MANY)
+    return ip
+
+
 @router.post("/api/access-requests")
 def create_request(
-    body: NewAccessRequest, request: Request, background: BackgroundTasks, db: Session = Depends(get_db)
+    body: NewAccessRequest,
+    background: BackgroundTasks,
+    ip: str = Depends(count_attempt),
+    db: Session = Depends(get_db),
 ):
     if not settings.access_requests_enabled:
         raise HTTPException(503, UNAVAILABLE)
-    ip = client_ip(request)
-    if not request_limiter.allow(ip):
-        raise HTTPException(429, "Too many account requests from your network. Please try again in an hour.")
+    if request_limiter.is_full(ip):
+        raise HTTPException(429, TOO_MANY)
     if not verify_turnstile(body.turnstile_token, ip):
         raise HTTPException(400, "The human check failed. Please try it again.")
     delete_stale_requests(db)
@@ -229,6 +246,7 @@ def create_request(
     db.flush()  # gives the request its id for the token
     token = new_token(db, "verify_request", access_request.id, body.email)
     db.commit()
+    request_limiter.add(ip)  # only requests that were really created count towards the 3
     guard.record(db, body.username, "access_requested", f"{guard.mask_email(body.email)} from {ip}")
     background.add_task(
         deliver, access_request.id, body.username, body.email, *mailer.verify_request(body.username, link(token))

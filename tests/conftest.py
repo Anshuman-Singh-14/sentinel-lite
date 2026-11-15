@@ -39,6 +39,7 @@ def reset_rate_limits():
     guard.scan_limiter.reset()
     guard.login_limiter.reset()
     access_requests.request_limiter.reset()
+    access_requests.attempt_limiter.reset()
     access_requests.email_limiter.reset()
 
 
