@@ -1,4 +1,4 @@
-"""SQLite connection. Tables are created on startup; there are no migrations."""
+"""SQLite connection. Tables are created, and older databases upgraded, on startup (see migrate.py)."""
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -16,9 +16,9 @@ class Base(DeclarativeBase):
 
 
 def init_db() -> None:
-    import backend.models  # noqa: F401  (registers the tables on Base)
+    from backend.migrate import migrate
 
-    Base.metadata.create_all(engine)
+    migrate(engine)
 
 
 def get_db():
