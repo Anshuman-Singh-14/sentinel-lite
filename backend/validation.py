@@ -4,7 +4,7 @@ import ipaddress
 import re
 from typing import Annotated
 
-from pydantic import AfterValidator, StringConstraints
+from pydantic import AfterValidator, EmailStr, StringConstraints
 
 LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 
@@ -32,3 +32,5 @@ def check_password(value: str) -> str:
 Hostname = Annotated[str, StringConstraints(max_length=253), AfterValidator(clean_host)]
 Username = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{3,32}$")]
 Password = Annotated[str, StringConstraints(min_length=8), AfterValidator(check_password)]
+# Lowercased, so Alice@Gmail.com and alice@gmail.com count as the same address.
+Email = Annotated[EmailStr, AfterValidator(str.lower)]

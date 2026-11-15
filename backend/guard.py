@@ -139,3 +139,9 @@ def record(db: Session, username: str, action: str, detail: str = "") -> None:
 def log_activity(db: Session, user: User, action: str, detail: str = "") -> None:
     """Record who did what in the Activity table (shown to admins)."""
     record(db, user.username, action, detail)
+
+
+def mask_email(email: str) -> str:
+    """alice@gmail.com -> a***@gmail.com. Full email addresses never go in the activity log."""
+    name, _, domain = email.partition("@")
+    return f"{name[:1]}***@{domain}"

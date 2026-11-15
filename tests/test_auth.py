@@ -1,5 +1,7 @@
 from conftest import PASSWORD
 
+from backend import guard
+
 
 def test_login_sets_session(client, make_user):
     make_user("alice")
@@ -41,6 +43,44 @@ def test_passwords_are_stored_hashed(make_user):
     user = make_user("alice")
     assert PASSWORD not in user.password_hash
     assert user.password_hash.startswith("$2b$")
+
+
+def change(client, current, new):
+    return client.post("/api/auth/change-password", json={"current_password": current, "new_password": new})
+
+
+def test_user_changes_password(user_client, db):
+    assert change(user_client, "wrong-password", "brand-new-pass").status_code == 400
+    assert change(user_client, PASSWORD, PASSWORD).status_code == 400  # must differ
+    assert change(user_client, PASSWORD, "short").status_code == 422
+    response = change(user_client, PASSWORD, "brand-new-pass")
+    assert response.status_code == 200
+    assert user_client.get("/api/auth/me").status_code == 200  # still logged in
+
+    guard.login_limiter.reset()  # the attempts above count against the login limit
+    user_client.post("/api/auth/logout")
+    assert user_client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}).status_code == 401
+    assert user_client.post("/api/auth/login", json={"username": "alice", "password": "brand-new-pass"}).status_code == 200
+
+
+def test_must_change_password_blocks_everything_else(client, make_user, db):
+    user = make_user("alice")
+    user.must_change_password = True
+    db.commit()
+    client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD})
+
+    assert client.get("/api/auth/me").json()["must_change_password"] is True
+    for response in [client.get("/api/scans"), client.post("/api/tools/dns-check", json={"domain": "example.com"})]:
+        assert response.status_code == 403
+        assert response.json() == {"detail": "password_change_required"}
+
+    assert change(client, PASSWORD, "brand-new-pass").json()["must_change_password"] is False
+    assert client.get("/api/scans").status_code == 200
+
+
+def test_change_password_uses_the_login_rate_limit(user_client):
+    statuses = [change(user_client, "wrong-password", "brand-new-pass").status_code for _ in range(5)]
+    assert statuses[-1] == 429  # the login itself used one of the 5 attempts
 
 
 def test_security_headers_except_csp_on_api_docs(client):

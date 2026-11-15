@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,7 @@ from backend.db import get_db
 from backend.guard import log_activity
 from backend.models import Activity, AllowedTarget, User
 from backend.reports import safe_cell
-from backend.validation import Hostname, Password, Username
+from backend.validation import Email, Hostname, Password, Username
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -32,12 +32,20 @@ class NewUser(BaseModel):
     username: Username
     password: Password
     role: Literal["admin", "user"] = "user"
+    email: Email | None = None
+
+    @model_validator(mode="after")
+    def users_need_email(self):
+        if self.role == "user" and self.email is None:
+            raise ValueError("an email address is required for role user")
+        return self
 
 
 class UserChange(BaseModel):
     role: Literal["admin", "user"] | None = None
     is_active: bool | None = None
     password: Password | None = None
+    email: Email | None = None  # can be changed but not removed
 
 
 class NewTarget(BaseModel):
@@ -58,6 +66,15 @@ def target_to_dict(target: AllowedTarget) -> dict:
 # --- Users ---
 
 
+def check_email_free(db: Session, email: str | None, user_id: int | None = None) -> None:
+    """Raise 409 if another user already has this email address."""
+    if email is None:
+        return
+    other = db.scalar(select(User).where(User.email == email))
+    if other is not None and other.id != user_id:
+        raise HTTPException(409, f"{email} is already used by {other.username}")
+
+
 @router.get("/users")
 def list_users(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     users = db.scalars(select(User).order_by(User.username))
@@ -68,7 +85,10 @@ def list_users(admin: User = Depends(require_admin), db: Session = Depends(get_d
 def create_user(body: NewUser, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     if db.scalar(select(User).where(User.username == body.username)):
         raise HTTPException(409, f"User {body.username} already exists")
-    user = User(username=body.username, password_hash=hash_password(body.password), role=body.role)
+    check_email_free(db, body.email)
+    user = User(
+        username=body.username, password_hash=hash_password(body.password), role=body.role, email=body.email
+    )
     db.add(user)
     db.commit()
     log_activity(db, admin, "user_created", f"{user.username} ({user.role})")
@@ -85,8 +105,16 @@ def change_user(
     # Stops the last admin from locking everyone out by accident.
     if user.id == admin.id and (body.role == "user" or body.is_active is False):
         raise HTTPException(400, "You can't remove your own admin rights or deactivate yourself")
+    # Existing users without an email keep working; only turning someone into a user needs one.
+    if body.role == "user" and user.role != "user" and not (body.email or user.email):
+        raise HTTPException(400, "Add an email address before changing this account to role user")
 
     changes = []
+    if body.email is not None and body.email != user.email:
+        check_email_free(db, body.email, user.id)
+        user.email = body.email
+        user.email_verified = False  # typed in by an admin, not confirmed by the user
+        changes.append("email changed")
     if body.role is not None:
         user.role = body.role
         changes.append(f"role={body.role}")
@@ -95,6 +123,7 @@ def change_user(
         changes.append("activated" if body.is_active else "deactivated")
     if body.password is not None:
         user.password_hash = hash_password(body.password)
+        user.must_change_password = True  # the admin knows it, so the user picks a new one
         changes.append("password reset")
     db.commit()
     log_activity(db, admin, "user_changed", f"{user.username}: {', '.join(changes) or 'no change'}")
