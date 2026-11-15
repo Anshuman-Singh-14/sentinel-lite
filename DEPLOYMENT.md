@@ -51,6 +51,43 @@ Copy `.env.example` to `.env` (or let `python run.py` create it) and fill in:
 
 `APP_ENV=prod` and the database location (`/data/sentinel.db` in the `sentinel-data` volume) are set in `docker-compose.yml` for the backend. The `APP_ENV` and `DATABASE_PATH` lines in `.env` only affect `python run.py`. Each container receives only the variables it needs: the backend never sees the tunnel token.
 
+### Email and account requests
+
+Visitors can ask for an account from the login page ("Request credentials"). They confirm their email, then an admin approves or rejects the request on the Admin page. This needs an email provider (Resend) and Cloudflare Turnstile. **Until all of the settings below are filled in, the request form is switched off** and the rest of the site works as before.
+
+| Key | Value |
+|---|---|
+| `SMTP_HOST` | `smtp.resend.com` |
+| `SMTP_PORT` | `587` (STARTTLS) |
+| `SMTP_USERNAME` | `resend` |
+| `SMTP_PASSWORD` | your Resend API key (secret) |
+| `MAIL_FROM` | `Sentinel Lite <no-reply@sentinellite.com>` |
+| `PUBLIC_URL` | `https://sentinellite.com` (the links in emails point here) |
+| `TURNSTILE_SITE_KEY` | the widget's site key (public; the frontend reads it from the API) |
+| `TURNSTILE_SECRET_KEY` | the widget's secret key (secret) |
+
+All of these are backend settings, so changing them needs only `docker compose --profile tunnel up -d` (no frontend rebuild). With `python run.py` (dev), leave them empty: emails, including links and generated passwords, are printed in the server console, and Turnstile uses Cloudflare's always-pass test keys.
+
+**Resend (sending email):**
+
+1. Sign up at [resend.com](https://resend.com), open **Domains** → **Add Domain** and enter `sentinellite.com`.
+2. Choose **Auto configure** with Cloudflare and allow it. Resend adds its DNS records (DKIM, SPF and the `send` / bounce records) to the zone.
+3. In the Cloudflare dashboard → **DNS**, check that the records Resend added under `send` and `rsend` (CNAME/MX/TXT) have **Proxy status: DNS only** (grey cloud). Proxied (orange) records break email verification.
+4. Back in Resend, wait until the domain shows **Verified**.
+5. **API Keys** → **Create API Key**, permission **Sending access**, limited to `sentinellite.com`. Copy it into `SMTP_PASSWORD` (it is shown only once).
+
+**Cloudflare Turnstile (the human check):**
+
+1. Cloudflare dashboard → **Turnstile** → **Add widget**.
+2. Name it `Sentinel Lite`, add the hostnames `sentinellite.com` and `www.sentinellite.com`, widget mode **Managed**.
+3. Copy the **Site Key** into `TURNSTILE_SITE_KEY` and the **Secret Key** into `TURNSTILE_SECRET_KEY`.
+
+Both Content Security Policies (the backend's and `frontend/nginx.conf.template`) already allow `https://challenges.cloudflare.com` for the widget's script and frame.
+
+If an approval or rejection email fails (wrong key, Resend down), the request shows **failed** with the error on the Admin page and an `email_failed` event in the activity log; fix the setting and press **Resend**.
+
+The database is upgraded automatically at startup (new columns on `users`, new `access_requests` and `email_tokens` tables). Existing users, scans and activity are kept. Back up `/data` first anyway (section 6).
+
 ## 4. Run it
 
 From the project folder:

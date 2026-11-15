@@ -78,7 +78,7 @@ Browser (React)  ──fetch /api/...──▶  FastAPI (backend/app.py)
 
 ## API
 
-All routes need a logged-in session except `/api/auth/login` and `/api/health`. A **scan** response looks like:
+All routes need a logged-in session except `/api/auth/login`, `/api/health`, `/api/access-requests/config`, `POST /api/access-requests` and `/api/email/verify`. While a user's `must_change_password` is true, every route except `me`, `logout` and `change-password` answers `403 {"detail": "password_change_required"}`. A **scan** response looks like:
 
 ```json
 {
@@ -93,9 +93,14 @@ All routes need a logged-in session except `/api/auth/login` and `/api/health`. 
 
 | Method & path | Body | Returns |
 |---|---|---|
-| `POST /api/auth/login` | `{username, password}` | user `{id, username, role, is_active}` |
+| `POST /api/auth/login` | `{username, password}` | user `{id, username, role, is_active, email, has_email, must_change_password}` |
 | `POST /api/auth/logout` | none | `{ok: true}` |
 | `GET /api/auth/me` | none | user, or 401 |
+| `POST /api/auth/change-password` | `{current_password, new_password}` | user |
+| `GET /api/access-requests/config` | none | `{enabled, terms_version, terms_text, turnstile_site_key}` |
+| `POST /api/access-requests` | `{username, email, wants_generated, password?, remarks, agree, terms_version, turnstile_token}` | `{message}` (3 per hour per IP) |
+| `POST /api/email/verify` | `{token}` | `{message}` |
+| `POST /api/account/email` | `{email}` | `{message}` (emails a confirmation link) |
 | `POST /api/tools/dns-check` | `{domain}` | scan |
 | `POST /api/tools/port-scan` | `{target, ports: [int] or null}` (null = common ports) | scan |
 | `POST /api/tools/web-check` | `{target}` | scan |
@@ -104,8 +109,12 @@ All routes need a logged-in session except `/api/auth/login` and `/api/health`. 
 | `GET /api/scans/{id}` | none | scan |
 | `GET /api/scans/{id}/export.csv` | none | CSV file |
 | `GET /api/scans/{id}/report` | none | print-friendly HTML page |
-| `GET/POST /api/admin/users` | POST: `{username, password, role}` | users / new user |
-| `PATCH /api/admin/users/{id}` | `{role?, is_active?, password?}` | user |
+| `GET/POST /api/admin/users` | POST: `{username, password, role, email}` (email required for role `user`) | users / new user |
+| `PATCH /api/admin/users/{id}` | `{role?, is_active?, password?, email?}` | user |
+| `GET /api/admin/access-requests?status=pending` | none (status: `pending`, `approved` or `rejected`) | account requests |
+| `POST /api/admin/access-requests/{id}/approve` | none | request (creates the user and emails them) |
+| `POST /api/admin/access-requests/{id}/reject` | `{reason?}` | request (emails them) |
+| `POST /api/admin/access-requests/{id}/resend-email` | none | request (only after a failed email) |
 | `GET/POST /api/admin/targets` | POST: `{host, note}` | targets / new target |
 | `DELETE /api/admin/targets/{id}` | none | `{ok: true}` |
 | `GET /api/admin/activity` | none | latest activity entries |
