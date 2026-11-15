@@ -1,4 +1,5 @@
-"""Admin routes: manage users, allowed scan targets, and view or download the activity log.
+"""Admin routes: manage users, review account requests, approve scan targets, and view
+or download the activity log.
 
 The log exports take ?view=1 to open in a browser tab instead of downloading."""
 
@@ -7,17 +8,19 @@ import io
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from backend import mailer
+from backend.access_requests import deliver
 from backend.activity_log import format_line
-from backend.auth import hash_password, require_admin, user_to_dict
+from backend.auth import generate_password, hash_password, require_admin, user_to_dict
 from backend.db import get_db
-from backend.guard import log_activity
-from backend.models import Activity, AllowedTarget, User
+from backend.guard import log_activity, mask_email
+from backend.models import AccessRequest, Activity, AllowedTarget, User, utcnow
 from backend.reports import safe_cell
 from backend.validation import Email, Hostname, Password, Username
 
@@ -128,6 +131,151 @@ def change_user(
     db.commit()
     log_activity(db, admin, "user_changed", f"{user.username}: {', '.join(changes) or 'no change'}")
     return user_to_dict(user)
+
+
+# --- Account requests (see access_requests.py for how they are made) ---
+
+
+class Rejection(BaseModel):
+    reason: str = Field(default="", max_length=300)
+
+
+def request_to_dict(access_request: AccessRequest) -> dict:
+    return {
+        "id": access_request.id,
+        "username": access_request.username,
+        "email": access_request.email,
+        "wants_generated": access_request.wants_generated,
+        "remarks": access_request.remarks,
+        "ip": access_request.ip,
+        "status": access_request.status,
+        "created_at": access_request.created_at.isoformat(),
+        "reviewed_by": access_request.reviewed_by,
+        "reviewed_at": access_request.reviewed_at.isoformat() if access_request.reviewed_at else None,
+        "reject_reason": access_request.reject_reason,
+        "email_status": access_request.email_status,
+        "email_error": access_request.email_error,
+    }
+
+
+def claim(db: Session, request_id: int, admin: User, new_status: str, **values) -> AccessRequest:
+    """Move a pending request to approved/rejected, or raise 409 if it isn't pending any more.
+
+    The status check is part of the UPDATE itself, so when two admins click at the same
+    moment exactly one of them gets the request (the other's UPDATE changes 0 rows).
+    """
+    if db.get(AccessRequest, request_id) is None:
+        raise HTTPException(404, "Request not found")
+    result = db.execute(
+        update(AccessRequest)
+        .where(AccessRequest.id == request_id, AccessRequest.status == "pending")
+        # email_status now tracks the decision email, not the earlier confirmation email.
+        .values(status=new_status, reviewed_by=admin.username, reviewed_at=utcnow(), email_status="not_sent",
+                email_error="", **values)
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(409, "This request isn't waiting for review (another admin may have just handled it)")
+    return db.get(AccessRequest, request_id, populate_existing=True)
+
+
+@router.get("/access-requests")
+def list_access_requests(
+    status: Literal["pending", "approved", "rejected"] = "pending",
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Unconfirmed ("unverified") requests are never shown: anyone could have typed that email."""
+    rows = db.scalars(
+        select(AccessRequest).where(AccessRequest.status == status).order_by(AccessRequest.id.desc()).limit(200)
+    )
+    return [request_to_dict(row) for row in rows]
+
+
+@router.post("/access-requests/{request_id}/approve")
+def approve_request(
+    request_id: int, background: BackgroundTasks, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    access_request = claim(db, request_id, admin, "approved")
+    if db.scalar(select(User).where(User.username == access_request.username)):
+        db.rollback()
+        raise HTTPException(409, f"The username {access_request.username} has been taken since the request was made")
+    if db.scalar(select(User).where(User.email == access_request.email)):
+        db.rollback()
+        raise HTTPException(409, f"{access_request.email} is already used by another account")
+
+    password = None
+    if access_request.password_hash is None:
+        password = generate_password()
+    user = User(
+        username=access_request.username,
+        password_hash=access_request.password_hash or hash_password(password),
+        role="user",
+        email=access_request.email,
+        email_verified=True,  # they opened the link we emailed
+        must_change_password=password is not None,
+    )
+    db.add(user)
+    access_request.password_hash = None  # the user row has it now
+    db.commit()
+    log_activity(db, admin, "access_request_approved", f"{user.username} ({mask_email(user.email)})")
+    email = mailer.approved_generated(user.username, password) if password else mailer.approved(user.username)
+    background.add_task(deliver, access_request.id, user.username, user.email, *email)
+    return request_to_dict(access_request)
+
+
+@router.post("/access-requests/{request_id}/reject")
+def reject_request(
+    request_id: int,
+    background: BackgroundTasks,
+    body: Rejection | None = None,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    reason = body.reason.strip() if body else ""
+    access_request = claim(db, request_id, admin, "rejected", reject_reason=reason, password_hash=None)
+    db.commit()
+    log_activity(db, admin, "access_request_rejected", access_request.username)
+    email = mailer.rejected(access_request.username, reason)
+    background.add_task(deliver, access_request.id, access_request.username, access_request.email, *email)
+    return request_to_dict(access_request)
+
+
+@router.post("/access-requests/{request_id}/resend-email")
+def resend_request_email(
+    request_id: int, background: BackgroundTasks, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    """Try the decision email again after it failed."""
+    access_request = db.get(AccessRequest, request_id)
+    if access_request is None:
+        raise HTTPException(404, "Request not found")
+    if access_request.email_status != "failed":
+        raise HTTPException(409, "Only failed emails can be resent")
+
+    if access_request.status == "rejected":
+        email = mailer.rejected(access_request.username, access_request.reject_reason)
+    elif access_request.status == "approved":
+        user = db.scalar(select(User).where(User.username == access_request.username))
+        if user is None:
+            raise HTTPException(409, "That account no longer exists")
+        if access_request.wants_generated:
+            # The first temporary password was never stored, so make a new one.
+            if not user.must_change_password:
+                raise HTTPException(409, f"{user.username} has already logged in and chosen a password")
+            password = generate_password()
+            user.password_hash = hash_password(password)
+            email = mailer.approved_generated(user.username, password)
+        else:
+            email = mailer.approved(user.username)
+    else:
+        raise HTTPException(409, "There is no email to resend for this request")
+
+    access_request.email_status = "not_sent"
+    access_request.email_error = ""
+    db.commit()
+    log_activity(db, admin, "access_request_email_resent", access_request.username)
+    background.add_task(deliver, access_request.id, access_request.username, access_request.email, *email)
+    return request_to_dict(access_request)
 
 
 # --- Allowed targets ---
