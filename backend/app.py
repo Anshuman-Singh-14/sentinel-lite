@@ -19,7 +19,9 @@ from backend.tools import TOOLS
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 
 SECURITY_HEADERS = {
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; "
+    # script-src/frame-src: Cloudflare Turnstile on the account request form.
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; "
+    "frame-src https://challenges.cloudflare.com; img-src 'self' data:; frame-ancestors 'none'; "
     "base-uri 'self'; form-action 'self'",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",

@@ -84,7 +84,10 @@ def test_change_password_uses_the_login_rate_limit(user_client):
 
 
 def test_security_headers_except_csp_on_api_docs(client):
-    assert "default-src 'self'" in client.get("/api/health").headers["content-security-policy"]
+    csp = client.get("/api/health").headers["content-security-policy"]
+    assert "default-src 'self'" in csp
+    assert "script-src 'self' https://challenges.cloudflare.com" in csp  # Turnstile
+    assert "frame-src https://challenges.cloudflare.com" in csp
     docs = client.get("/api/docs")  # Swagger UI needs its CDN scripts, so no CSP there
     assert docs.status_code == 200
     assert "content-security-policy" not in docs.headers

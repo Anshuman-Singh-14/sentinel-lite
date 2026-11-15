@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api.js";
 
 export default function LoginPage({ onLogin }) {
@@ -6,6 +7,14 @@ export default function LoginPage({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // The link is hidden when the server has account requests switched off.
+  const [requestsEnabled, setRequestsEnabled] = useState(false);
+
+  useEffect(() => {
+    api("/api/access-requests/config")
+      .then((config) => setRequestsEnabled(config.enabled))
+      .catch(() => setRequestsEnabled(false));
+  }, []);
 
   async function submit(event) {
     event.preventDefault();
@@ -42,7 +51,13 @@ export default function LoginPage({ onLogin }) {
         <button type="submit" disabled={busy}>
           {busy ? "Logging in…" : "Log in"}
         </button>
-        <p className="muted small">Accounts are created by an admin.</p>
+        {requestsEnabled ? (
+          <p className="muted small">
+            No account? <Link to="/request-access">Request credentials</Link>
+          </p>
+        ) : (
+          <p className="muted small">Accounts are created by an admin.</p>
+        )}
       </form>
     </div>
   );
