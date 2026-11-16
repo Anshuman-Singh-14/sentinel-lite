@@ -194,6 +194,12 @@
     "explanation": "One IP address failed to log in as 5 or more different usernames within 10 minutes. Instead of guessing many passwords for one account (which trips lockouts), the attacker tries a few common passwords against many accounts. Each account sees only one or two failures, so it is easy to miss.",
     "fix": "Block the IP. Check whether any of those accounts later logged in successfully, and reset their passwords if so. Make sure no account uses a common password, and limit login attempts per IP, not only per account."
   },
+  "log.ssh_username_scan": {
+    "title": "One IP trying many non-existent usernames over SSH",
+    "severity": "medium",
+    "explanation": "One IP address tried 5 or more different usernames that don't exist on this server within an hour (sshd logged them as \"invalid user\"). This is a bot guessing common account names such as root, ubuntu, admin or oracle, hoping to find one that exists and has a weak password. It is constant background noise on any server with SSH open to the internet, but it shows the server is being scanned.",
+    "fix": "Keep SSH key-only (PasswordAuthentication no), which is already the case on our server, so guessed names alone can't get in. Install fail2ban to block IPs that keep trying, and limit SSH to known IP addresses in the Azure network security group so bots can't reach port 22 at all."
+  },
   "log.target_probing": {
     "title": "One user repeatedly scanning targets that are not approved",
     "severity": "medium",

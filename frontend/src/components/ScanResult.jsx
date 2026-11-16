@@ -150,6 +150,8 @@ function LogSummary({ summary }) {
         rows={[
           ["Lines in file", summary.lines],
           ["Events recognised", summary.recognized_events],
+          // Scans saved before this count existed don't have it.
+          ...(summary.failed_attempts !== undefined ? [["Failed login attempts", summary.failed_attempts]] : []),
         ]}
       />
       {summary.top_ips.length > 0 && (

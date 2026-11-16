@@ -179,3 +179,125 @@ def test_csv_upload_through_the_api(user_client):
     response = user_client.post("/api/tools/log-analyzer", files=files)
     assert response.status_code == 200
     assert keys(response.json()["findings"]) == ["log.password_spray"]
+
+
+# --- Key-only SSH servers: attempts that never reach a password prompt ---
+
+# Real lines from our Azure VM's auth.log.
+CLOSED_AUTHENTICATING = ("2026-11-16T01:31:06.833119+00:00 sentinel-vm sshd[16193]: Connection closed by "
+                         "authenticating user root 195.178.110.217 port 58846 [preauth]")
+INVALID_USER = ("2026-11-16T01:32:10.778064+00:00 sentinel-vm sshd[16419]: Invalid user ubuntu from "
+                "222.210.35.197 port 46162")
+CLOSED_INVALID = ("2026-11-16T01:32:10.896531+00:00 sentinel-vm sshd[16419]: Connection closed by invalid user "
+                  "ubuntu 222.210.35.197 port 46162 [preauth]")
+
+
+def vm_line(message, pid, minute=40, second=0):
+    return f"2026-11-16T01:{minute:02d}:{second:02d}.000000+00:00 sentinel-vm sshd[{pid}]: {message}"
+
+
+def test_each_preauth_line_type_is_a_failed_attempt():
+    cases = [
+        (CLOSED_AUTHENTICATING, "195.178.110.217", "root", False),
+        (INVALID_USER, "222.210.35.197", "ubuntu", True),
+        (CLOSED_INVALID, "222.210.35.197", "ubuntu", True),
+        (vm_line("Disconnected from invalid user admin 203.0.113.5 port 5022 [preauth]", 1), "203.0.113.5", "admin",
+         True),
+        (vm_line("Disconnected from authenticating user root 203.0.113.5 port 5022 [preauth]", 1), "203.0.113.5",
+         "root", False),
+        (vm_line("Failed none for invalid user oracle from 203.0.113.6 port 40022 ssh2", 2), "203.0.113.6", "oracle",
+         True),
+        (vm_line("Failed keyboard-interactive/pam for invalid user pi from 203.0.113.7 port 22 ssh2", 3),
+         "203.0.113.7", "pi", True),
+    ]
+    for line, ip, user, invalid in cases:
+        event = parse_line(line)
+        assert event is not None, line
+        assert (event.kind, event.ip, event.user, event.invalid_user) == ("failed_login", ip, user, invalid), line
+    assert parse_line(INVALID_USER).pid == "16419"
+
+
+def test_ipv6_and_empty_usernames_parse():
+    ipv6 = parse_line(vm_line("Invalid user test from 2001:db8::1f port 51000", 5))
+    assert (ipv6.ip, ipv6.user) == ("2001:db8::1f", "test")
+    empty = parse_line(vm_line("Invalid user  from 198.51.100.20 port 51000", 6))
+    assert (empty.kind, empty.ip, empty.user, empty.invalid_user) == ("failed_login", "198.51.100.20", "", True)
+    closed_empty = parse_line(vm_line("Connection closed by invalid user  198.51.100.20 port 51000 [preauth]", 6))
+    assert (closed_empty.ip, closed_empty.user) == ("198.51.100.20", "")
+
+
+def test_one_connection_writing_two_lines_counts_once():
+    summary, _ = analyze_text("\n".join([INVALID_USER, CLOSED_INVALID]))
+    assert summary["failed_attempts"] == 1
+    assert summary["top_ips"][0]["ip"] == "222.210.35.197" and summary["top_ips"][0]["failed_logins"] == 1
+
+
+def test_failed_password_and_its_closing_line_count_once():
+    log = [vm_line("Failed password for root from 203.0.113.9 port 4242 ssh2", 900, second=1),
+           vm_line("Connection closed by authenticating user root 203.0.113.9 port 4242 [preauth]", 900, second=2)]
+    assert analyze_text("\n".join(log))[0]["failed_attempts"] == 1
+
+
+def test_each_password_guess_in_one_connection_counts_but_its_other_lines_do_not():
+    # Invalid user -> Failed password -> Connection closed: one guess.
+    one_guess = [vm_line("Invalid user bob from 203.0.113.9 port 1", 950, second=1),
+                 vm_line("Failed password for invalid user bob from 203.0.113.9 port 1 ssh2", 950, second=2),
+                 vm_line("Connection closed by invalid user bob 203.0.113.9 port 1 [preauth]", 950, second=3)]
+    assert analyze_text("\n".join(one_guess))[0]["failed_attempts"] == 1
+    # Three passwords tried in one connection (sshd allows several): three guesses.
+    three_guesses = [vm_line("Failed password for root from 203.0.113.9 port 1 ssh2", 951, second=s)
+                     for s in (1, 2, 3)]
+    three_guesses.append(vm_line("Connection closed by authenticating user root 203.0.113.9 port 1 [preauth]", 951,
+                                 second=4))
+    assert analyze_text("\n".join(three_guesses))[0]["failed_attempts"] == 3
+
+
+def test_a_reused_pid_later_on_is_a_new_connection():
+    log = [vm_line("Invalid user ubuntu from 203.0.113.9 port 1", 700, minute=10),
+           vm_line("Invalid user ubuntu from 203.0.113.9 port 2", 700, minute=40)]  # 30 minutes later
+    assert analyze_text("\n".join(log))[0]["failed_attempts"] == 2
+
+
+def test_normal_session_disconnects_are_not_attempts():
+    normal = [
+        vm_line("Received disconnect from 203.0.113.50 port 50122:11: disconnected by user", 800),
+        vm_line("Received disconnect from 203.0.113.50 port 50122:11: Normal Shutdown", 800),
+        vm_line("Disconnected from user azureuser 203.0.113.50 port 50122", 800),
+        "2026-11-16T01:40:00.000000+00:00 sentinel-vm sshd[800]: pam_unix(sshd:session): session closed for user "
+        "azureuser",
+        vm_line("Accepted publickey for azureuser from 203.0.113.50 port 50122 ssh2: ED25519 SHA256:abc", 800),
+    ]
+    summary, findings = analyze_text("\n".join(normal))
+    assert summary["failed_attempts"] == 0
+    assert summary["recognized_events"] == 1  # only the accepted login
+    assert findings == []
+
+
+def test_a_burst_of_preauth_attempts_raises_a_failed_login_burst():
+    log = []
+    for n in range(5):  # five connections, each writing two lines, all within 50 seconds
+        log.append(vm_line("Connection closed by authenticating user root 195.178.110.217 port 1 [preauth]",
+                           2000 + n, second=n * 10))
+        log.append(vm_line("Disconnected from authenticating user root 195.178.110.217 port 1 [preauth]",
+                           2000 + n, second=n * 10 + 1))
+    summary, findings = analyze_text("\n".join(log))
+    assert summary["failed_attempts"] == 5
+    assert keys(findings) == ["log.failed_login_burst"]
+    assert findings[0]["details"] == {"ip": "195.178.110.217", "failures_in_60s": 5}
+
+
+def test_five_invalid_usernames_from_one_ip_is_a_username_scan():
+    log = []
+    for n, user in enumerate(["ubuntu", "admin", "oracle", "test", "postgres"]):  # one every 8 minutes
+        log.append(vm_line(f"Invalid user {user} from 222.210.35.197 port 46162", 3000 + n, minute=n * 8))
+        log.append(vm_line(f"Connection closed by invalid user {user} 222.210.35.197 port 46162 [preauth]",
+                           3000 + n, minute=n * 8, second=1))
+    summary, findings = analyze_text("\n".join(log))
+    assert summary["failed_attempts"] == 5
+    assert keys(findings) == ["log.ssh_username_scan"]  # too slow for spraying (10 min) or a burst (60 s)
+    assert findings[0]["severity"] == "medium"
+    assert findings[0]["details"] == {"ip": "222.210.35.197", "invalid_usernames_in_1_hour": 5}
+    # Existing users ("authenticating user") don't count towards a username scan.
+    existing = "\n".join(vm_line(f"Connection closed by authenticating user {user} 192.0.2.9 port 1 [preauth]",
+                                 4000 + n, minute=n * 8) for n, user in enumerate(["a", "b", "c", "d", "e"]))
+    assert analyze_text(existing)[1] == []
