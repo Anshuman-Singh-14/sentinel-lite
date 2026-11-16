@@ -31,6 +31,8 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(default=False)
     # Set for generated or admin-reset passwords: the user must choose their own before anything else.
     must_change_password: Mapped[bool] = mapped_column(default=False)
+    # Admins only: shown in approval and rejection emails, so the username never is.
+    display_name: Mapped[str | None] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 

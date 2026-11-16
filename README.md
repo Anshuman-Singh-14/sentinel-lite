@@ -110,7 +110,8 @@ All routes need a logged-in session except `/api/auth/login`, `/api/health`, `/a
 | `GET /api/scans/{id}/export.csv` | none | CSV file |
 | `GET /api/scans/{id}/report` | none | print-friendly HTML page |
 | `GET/POST /api/admin/users` | POST: `{username, password, role, email}` (email required for role `user`) | users / new user |
-| `PATCH /api/admin/users/{id}` | `{role?, is_active?, password?, email?}` | user |
+| `PATCH /api/admin/users/{id}` | `{role?, is_active?, password?, email?, display_name?}` (display name: admins only, `""` clears it) | user |
+| `DELETE /api/admin/users/{id}` | `{confirm_username}` (must match exactly) | `{ok: true}` (also deletes their scans) |
 | `GET /api/admin/access-requests?status=pending` | none (status: `pending`, `approved` or `rejected`) | account requests |
 | `POST /api/admin/access-requests/{id}/approve` | none | request (creates the user and emails them) |
 | `POST /api/admin/access-requests/{id}/reject` | `{reason?}` | request (emails them) |

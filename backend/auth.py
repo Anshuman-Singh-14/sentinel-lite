@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from backend import guard
 from backend.db import get_db
-from backend.models import User
+from backend.models import User, as_utc
 from backend.validation import Password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -60,14 +60,35 @@ def user_to_dict(user: User) -> dict:
         "email": user.email,
         "has_email": bool(user.email),
         "must_change_password": user.must_change_password,
+        "display_name": user.display_name,
     }
+
+
+def account_stamp(user: User) -> str:
+    return as_utc(user.created_at).isoformat()
+
+
+def start_session(request: Request, user: User) -> None:
+    request.session.clear()
+    request.session["user_id"] = user.id
+    # SQLite can give a deleted account's id to the next new account, so the session also
+    # remembers when its account was made and only ever works for that exact account.
+    request.session["account"] = account_stamp(user)
+
+
+def session_user(request: Request, db: Session) -> User | None:
+    """The account this session was started for, or None if it no longer exists."""
+    user_id = request.session.get("user_id")
+    user = db.get(User, user_id) if user_id else None
+    if user is None or request.session.get("account") != account_stamp(user):
+        return None
+    return user
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """Dependency for routes that need a logged-in user."""
-    user_id = request.session.get("user_id")
-    user = db.get(User, user_id) if user_id else None
-    # Reloading the user on every request means a deactivated account is locked out at once.
+    user = session_user(request, db)
+    # Reloading the user on every request means a deactivated or deleted account is locked out at once.
     if user is None or not user.is_active:
         raise HTTPException(401, "Please log in")
     # Checked here, on the server, so skipping the change-password page in the browser doesn't help.
@@ -102,16 +123,14 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     if user is None or not password_ok or not user.is_active:
         guard.record(db, body.username, "login_failed", f"from {ip}")
         raise HTTPException(401, "Wrong username or password")
-    request.session.clear()
-    request.session["user_id"] = user.id
+    start_session(request, user)
     guard.log_activity(db, user, "login", f"from {ip}")
     return user_to_dict(user)
 
 
 @router.post("/logout")
 def logout(request: Request, db: Session = Depends(get_db)):
-    user_id = request.session.get("user_id")
-    user = db.get(User, user_id) if user_id else None
+    user = session_user(request, db)
     if user:
         guard.log_activity(db, user, "logout")
     request.session.clear()
@@ -137,7 +156,6 @@ def change_password(
     user.must_change_password = False
     db.commit()
     # A fresh session after a password change.
-    request.session.clear()
-    request.session["user_id"] = user.id
+    start_session(request, user)
     guard.log_activity(db, user, "password_changed")
     return user_to_dict(user)
