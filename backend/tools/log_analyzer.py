@@ -3,6 +3,13 @@
 Understands these formats:
   sshd (auth.log):  Oct  5 10:00:01 web1 sshd[812]: Failed password for root from 203.0.113.9 port 4242 ssh2
                     (also "sshd-session[812]:", used by newer OpenSSH, e.g. Ubuntu 24.04)
+    On servers that only allow SSH keys, bots never get a password prompt, so there are no
+    "Failed password" lines. Their attempts show up as pre-authentication lines instead:
+      sshd[16419]: Invalid user ubuntu from 222.210.35.197 port 46162
+      sshd[16419]: Connection closed by invalid user ubuntu 222.210.35.197 port 46162 [preauth]
+      sshd[16193]: Connection closed by authenticating user root 195.178.110.217 port 58846 [preauth]
+    One connection often writes two of these lines, so attempts are counted once per sshd
+    process id (pid).
   nginx access log: 203.0.113.9 - - [05/Oct/2026:10:00:01 +0000] "GET /wp-login.php HTTP/1.1" 404 153 "-" "curl"
   Sentinel Lite's own activity log, both line formats and the CSV download:
     2026-11-16T06:10:01Z ip=203.0.113.9 user=alice action=login_failed result=fail detail="wrong password"
@@ -37,6 +44,7 @@ MAX_BYTES = 5 * 1024 * 1024
 FORM_OVERHEAD = 64 * 1024  # room for the multipart headers around the file
 ALLOWED_EXTENSIONS = (".log", ".txt", ".csv")
 
+CONNECTION_WINDOW = timedelta(minutes=2)  # lines of one sshd pid this close together are one connection
 BURST_COUNT = 5  # this many failed logins ...
 BURST_WINDOW = timedelta(seconds=60)  # ... from one IP within this time is a burst
 SPRAY_USERS = 5  # one IP failing logins for this many different usernames ...
@@ -45,6 +53,8 @@ PROBING_COUNT = 5  # this many refused scans by one user ...
 PROBING_WINDOW = timedelta(minutes=10)  # ... within this time is target probing
 RATE_LIMIT_COUNT = 5  # this many rate-limit hits by one user or IP ...
 RATE_LIMIT_WINDOW = timedelta(hours=1)  # ... within this time is abuse
+SCAN_USERNAMES = 5  # one IP trying this many usernames that don't exist ...
+SCAN_WINDOW = timedelta(hours=1)  # ... within this time is a username scan
 AUTH_FAILURE_LIMIT = 10  # 401/403 responses to one IP
 NOT_FOUND_LIMIT = 20  # 404 responses to one IP
 MAX_FINDINGS_PER_RULE = 10  # report at most the 10 worst IPs or users for each rule
@@ -57,12 +67,21 @@ MultiPartParser.spool_max_size = MAX_BYTES + FORM_OVERHEAD
 SYSLOG_LINE = re.compile(
     r"^(?:(?P<month>[A-Z][a-z]{2})\s+(?P<day>\d{1,2}) (?P<clock>\d\d:\d\d:\d\d)"  # Oct  5 10:00:01
     r"|(?P<iso>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\S*)"  # or 2026-10-05T10:00:01.123+00:00
-    r" \S+ sshd(?:-session)?(?:\[\d+\])?: (?P<message>.*)$"
+    r" \S+ sshd(?:-session)?(?:\[(?P<pid>\d+)\])?: (?P<message>.*)$"
 )
-FAILED_LOGIN = re.compile(
-    r"Failed (?:password|publickey) for (?:invalid user )?(?P<user>\S+) from (?P<ip>[0-9a-fA-F.:]+)"
-)
-ACCEPTED_LOGIN = re.compile(r"Accepted (?:password|publickey) for (?P<user>\S+) from (?P<ip>[0-9a-fA-F.:]+)")
+IP = r"(?P<ip>[0-9a-fA-F.:]+)"  # IPv4 or IPv6
+# Each pattern is one failed attempt; the "invalid" group is set when the user doesn't exist.
+# Usernames are \S* rather than \S+: bots sometimes send an empty one ("Invalid user  from ...").
+FAILED_ATTEMPTS = [
+    re.compile(r"^Failed (?:password|publickey|none|keyboard-interactive(?:/pam)?) for "
+               r"(?P<invalid>invalid user )?(?P<user>\S*) from " + IP),
+    re.compile(r"^(?P<invalid>Invalid) user (?P<user>\S*) from " + IP + r" port \d+"),
+    # The end of a connection that never logged in. "Disconnected from user azureuser ..."
+    # (no "invalid"/"authenticating") is a normal logout and doesn't match.
+    re.compile(r"^(?:Connection closed by|Disconnected from) (?:(?P<invalid>invalid)|authenticating) user "
+               r"(?P<user>\S*) " + IP + r" port \d+ \[preauth\]"),
+]
+ACCEPTED_LOGIN = re.compile(r"Accepted (?:password|publickey) for (?P<user>\S+) from " + IP)
 NGINX_LINE = re.compile(r'^(?P<ip>[0-9a-fA-F.:]+) \S+ \S+ \[[^\]]+\] "[^"]*" (?P<status>\d{3}) ')
 
 # Sentinel Lite's activity log. The username in old lines can itself contain " | ",
@@ -87,6 +106,9 @@ class Event:
     time: datetime | None = None
     user: str | None = None
     target: str | None = None
+    pid: str | None = None  # the sshd process id, to count one attempt per connection
+    invalid_user: bool = False  # sshd said the username doesn't exist
+    failed_line: bool = False  # sshd's own "Failed ..." line: each one is a separate guess
 
 
 def syslog_time(match: re.Match) -> datetime:
@@ -165,10 +187,13 @@ def parse_sentinel_csv(text: str) -> list[Event]:
 
 def parse_line(line: str) -> Event | None:
     if match := SYSLOG_LINE.match(line):
-        if failed := FAILED_LOGIN.search(match["message"]):
-            return Event("failed_login", failed["ip"], syslog_time(match), failed["user"])
-        if accepted := ACCEPTED_LOGIN.search(match["message"]):
-            return Event("accepted_login", accepted["ip"], syslog_time(match), accepted["user"])
+        message = match["message"]
+        for pattern in FAILED_ATTEMPTS:
+            if failed := pattern.search(message):
+                return Event("failed_login", failed["ip"], syslog_time(match), failed["user"], pid=match["pid"],
+                             invalid_user=bool(failed["invalid"]), failed_line=message.startswith("Failed "))
+        if accepted := ACCEPTED_LOGIN.search(message):
+            return Event("accepted_login", accepted["ip"], syslog_time(match), accepted["user"], pid=match["pid"])
         return None
     if match := NGINX_LINE.match(line):
         status = match["status"]
@@ -178,6 +203,48 @@ def parse_line(line: str) -> Event | None:
             return Event("not_found", match["ip"])
         return None
     return parse_sentinel_line(line)
+
+
+@dataclass
+class Connection:
+    """What one sshd process (pid) has written so far."""
+
+    counted: Event  # the attempt counted for it
+    last_seen: datetime  # time of its latest line
+    has_failed_line: bool  # a "Failed ..." line has been counted
+
+
+def one_attempt_per_connection(events: list[Event]) -> list[Event]:
+    """Stop one connection's lines being counted as several attempts.
+
+    One connection often writes "Invalid user ..." and then "Connection closed by invalid
+    user ... [preauth]", or "Failed password ..." and then its closing line. They share the
+    sshd pid. Those extra lines only count if the connection has no attempt yet. Each
+    "Failed ..." line is a real guess (one connection may try several passwords), so it
+    counts, except that the first one replaces an attempt counted from an "Invalid user"
+    line before it. Pids are reused over time, so lines more than CONNECTION_WINDOW apart
+    are separate connections. Lines without a pid are kept as they are.
+    """
+    kept = []
+    connections: dict[str, Connection] = {}
+    for event in events:
+        if event.kind != "failed_login" or event.pid is None:
+            kept.append(event)
+            continue
+        connection = connections.get(event.pid)
+        if connection is None or event.time - connection.last_seen > CONNECTION_WINDOW:
+            connections[event.pid] = Connection(event, event.time, event.failed_line)
+            kept.append(event)
+            continue
+        connection.last_seen = event.time
+        if event.failed_line and connection.has_failed_line:  # another guess in the same connection
+            connection.counted = event
+            kept.append(event)
+            continue
+        # Part of the attempt already counted: only keep what it adds.
+        connection.counted.invalid_user = connection.counted.invalid_user or event.invalid_user
+        connection.has_failed_line = connection.has_failed_line or event.failed_line
+    return kept
 
 
 # --- Rules ---
@@ -216,14 +283,17 @@ def analyze_text(text: str) -> tuple[dict, list[dict]]:
     if lines and lines[0].lstrip("\ufeff").startswith(SENTINEL_CSV_HEADER):
         events = parse_sentinel_csv(text.lstrip("\ufeff"))
     else:
-        events = [event for event in map(parse_line, lines) if event]
-    summary = {"lines": len(lines), "recognized_events": len(events), "top_ips": []}
+        events = one_attempt_per_connection([event for event in map(parse_line, lines) if event])
+    failed_attempts = sum(event.kind == "failed_login" for event in events)
+    summary = {"lines": len(lines), "recognized_events": len(events), "failed_attempts": failed_attempts,
+               "top_ips": []}
     if not events:
         return summary, [make_finding("log.no_lines_recognized")]
 
     counts: dict[str, Counter] = defaultdict(Counter)  # ip -> {kind: count}
     failure_times: dict[str, list[datetime]] = defaultdict(list)
     failed_usernames: dict[str, list[tuple[datetime, str]]] = defaultdict(list)  # ip -> (time, username)
+    invalid_usernames: dict[str, list[tuple[datetime, str]]] = defaultdict(list)  # the same, users that don't exist
     success_after_failures: dict[str, int] = {}  # ip -> failed logins before it got in
     refused_scans: dict[str, list[datetime]] = defaultdict(list)  # user -> times
     rate_limit_hits: dict[str, list[datetime]] = defaultdict(list)  # "user alice" / "IP 1.2.3.4" -> times
@@ -234,8 +304,10 @@ def analyze_text(text: str) -> tuple[dict, list[dict]]:
         counts[event.ip][event.kind] += 1
         if event.kind == "failed_login":
             failure_times[event.ip].append(event.time)
-            if event.user:
+            if event.user is not None:  # "" (an empty username) still counts as a name tried
                 failed_usernames[event.ip].append((event.time, event.user))
+                if event.invalid_user:
+                    invalid_usernames[event.ip].append((event.time, event.user))
         elif event.kind == "scan_refused" and event.user:
             refused_scans[event.user].append(event.time)
         elif event.kind == "rate_limited":
@@ -257,6 +329,11 @@ def analyze_text(text: str) -> tuple[dict, list[dict]]:
     findings += worst(
         [(users, make_finding("log.password_spray", ip=ip, usernames_in_10_min=users))
          for ip, users in sprays.items() if users >= SPRAY_USERS]
+    )
+    scans = {ip: most_usernames_in_window(tries, SCAN_WINDOW) for ip, tries in invalid_usernames.items()}
+    findings += worst(
+        [(users, make_finding("log.ssh_username_scan", ip=ip, invalid_usernames_in_1_hour=users))
+         for ip, users in scans.items() if users >= SCAN_USERNAMES]
     )
     probes = {user: largest_burst(times, PROBING_WINDOW) for user, times in refused_scans.items()}
     findings += worst(
