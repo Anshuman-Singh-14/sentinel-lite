@@ -268,11 +268,6 @@ function Users({ currentUser }) {
     if (password) change(user, { password });
   }
 
-  function editEmail(user) {
-    const email = window.prompt(`Email address for ${user.username}:`, user.email ?? "");
-    if (email) change(user, { email });
-  }
-
   function editDisplayName(user) {
     const name = window.prompt(
       `Display name for ${user.username}, shown in approval and rejection emails (leave empty to clear):`,
@@ -282,12 +277,7 @@ function Users({ currentUser }) {
   }
 
   function changeRole(user, role) {
-    // Normal users need an email, so ask for one when an admin without one is changed to user.
-    if (role === "user" && !user.email) {
-      const email = window.prompt(`${user.username} needs an email address to become a user:`);
-      if (email) change(user, { role, email });
-      return;
-    }
+    // The server refuses role "user" for an account without an email, and says why.
     change(user, { role });
   }
 
@@ -343,69 +333,79 @@ function Users({ currentUser }) {
           Display name: shown to people in approval and rejection emails instead of the username.
         </p>
       )}
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Username</th>
-            {tab === "admin" && <th>Display name</th>}
-            <th>Email</th>
-            <th>Role</th>
-            <th>Status</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {shown.length === 0 && (
+      <div className="table-scroll">
+        <table className="data users">
+          <thead>
             <tr>
-              <td colSpan={columns} className="muted">
-                Nobody here yet.
-              </td>
+              <th>Username</th>
+              {tab === "admin" && <th>Display name</th>}
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th />
             </tr>
-          )}
-          {shown.map((user) => {
-            const isMe = user.id === currentUser.id;
-            return (
-              <tr key={user.id}>
-                <td>
-                  {user.username} {isMe && <span className="muted">(you)</span>}
-                </td>
-                {tab === "admin" && <td>{user.display_name ?? <span className="muted">none</span>}</td>}
-                <td>{user.email ?? <span className="muted">none</span>}</td>
-                <td>
-                  <select value={user.role} disabled={isMe} onChange={(e) => changeRole(user, e.target.value)}>
-                    <option value="user">user</option>
-                    <option value="admin">admin</option>
-                  </select>
-                </td>
-                <td>{user.is_active ? "active" : "deactivated"}</td>
-                <td className="actions">
-                  {!isMe && (
-                    <button type="button" className="link-button" onClick={() => change(user, { is_active: !user.is_active })}>
-                      {user.is_active ? "Deactivate" : "Activate"}
-                    </button>
-                  )}
-                  <button type="button" className="link-button" onClick={() => resetPassword(user)}>
-                    Reset password
-                  </button>
-                  <button type="button" className="link-button" onClick={() => editEmail(user)}>
-                    Edit email
-                  </button>
-                  {tab === "admin" && (
-                    <button type="button" className="link-button" onClick={() => editDisplayName(user)}>
-                      Edit display name
-                    </button>
-                  )}
-                  {!isMe && (
-                    <button type="button" className="danger" onClick={() => setDeleting(user)}>
-                      Delete
-                    </button>
-                  )}
+          </thead>
+          <tbody>
+            {shown.length === 0 && (
+              <tr>
+                <td colSpan={columns} className="muted">
+                  Nobody here yet.
                 </td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            )}
+            {shown.map((user) => {
+              const isMe = user.id === currentUser.id;
+              return (
+                <tr key={user.id}>
+                  <td>
+                    {user.username} {isMe && <span className="muted">(you)</span>}
+                  </td>
+                  {tab === "admin" && <td>{user.display_name ?? <span className="muted">none</span>}</td>}
+                  <td>{user.email ?? <span className="muted">none</span>}</td>
+                  <td>
+                    <select
+                      className="role-select"
+                      value={user.role}
+                      disabled={isMe}
+                      onChange={(e) => changeRole(user, e.target.value)}
+                    >
+                      <option value="user">user</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </td>
+                  <td>
+                    <span className={user.is_active ? "status-badge active" : "status-badge"}>
+                      {user.is_active ? "active" : "deactivated"}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="user-actions">
+                      {!isMe && (
+                        <button type="button" className="link-button" onClick={() => change(user, { is_active: !user.is_active })}>
+                          {user.is_active ? "Deactivate" : "Activate"}
+                        </button>
+                      )}
+                      <button type="button" className="link-button" onClick={() => resetPassword(user)}>
+                        Reset password
+                      </button>
+                      {tab === "admin" && (
+                        <button type="button" className="link-button" onClick={() => editDisplayName(user)}>
+                          Edit display name
+                        </button>
+                      )}
+                      {!isMe && (
+                        <button type="button" className="link-button danger-link" onClick={() => setDeleting(user)}>
+                          Delete
+                        </button>
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       {deleting && (
         <DeleteUserDialog
           key={deleting.id}

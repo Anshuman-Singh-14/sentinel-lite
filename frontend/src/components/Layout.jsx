@@ -47,6 +47,7 @@ export default function Layout({ user, onLogout, children }) {
             {user.username} ({user.role})
           </span>
           <span className="account-links">
+            <NavLink to="/account/email">Change email</NavLink>
             <NavLink to="/account/password">Change password</NavLink>
             <button type="button" className="link-button" onClick={onLogout}>
               Log out

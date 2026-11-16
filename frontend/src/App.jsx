@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import Layout from "./components/Layout.jsx";
 import ActivityPage from "./pages/ActivityPage.jsx";
 import AdminPage from "./pages/AdminPage.jsx";
+import ChangeEmailPage from "./pages/ChangeEmailPage.jsx";
 import ChangePasswordPage from "./pages/ChangePasswordPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import DnsCheckPage from "./pages/DnsCheckPage.jsx";
@@ -66,6 +67,7 @@ export default function App() {
         <Route path="/encoder" element={<EncoderPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/history/:scanId" element={<ScanDetailPage />} />
+        <Route path="/account/email" element={<ChangeEmailPage user={user} />} />
         <Route path="/account/password" element={<ChangePasswordPage onChanged={setUser} />} />
         <Route path="/verify-email" element={<VerifyEmailPage onVerified={loadUser} />} />
         <Route
