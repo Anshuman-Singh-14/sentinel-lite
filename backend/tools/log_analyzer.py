@@ -1,12 +1,19 @@
-"""Log analyzer: failed-login bursts and top suspicious IPs in auth/nginx logs.
+"""Log analyzer: failed-login bursts, password spraying and other suspicious activity in logs.
 
-Understands two common formats:
+Understands these formats:
   sshd (auth.log):  Oct  5 10:00:01 web1 sshd[812]: Failed password for root from 203.0.113.9 port 4242 ssh2
+                    (also "sshd-session[812]:", used by newer OpenSSH, e.g. Ubuntu 24.04)
   nginx access log: 203.0.113.9 - - [05/Oct/2026:10:00:01 +0000] "GET /wp-login.php HTTP/1.1" 404 153 "-" "curl"
+  Sentinel Lite's own activity log, both line formats and the CSV download:
+    2026-11-16T06:10:01Z ip=203.0.113.9 user=alice action=login_failed result=fail detail="wrong password"
+    2026-10-30 06:51:12 UTC | alice | login_failed | from 203.0.113.9          (older lines)
+    id,time_utc,ip,username,action,result,detail                                (CSV, ip/result optional)
 
-Uploads (.log/.txt, max 5 MB) are read into memory and never saved to disk.
+Uploads (.log/.txt/.csv, max 5 MB) are read into memory and never saved to disk.
 """
 
+import csv
+import io
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -28,13 +35,19 @@ from backend.results import make_finding, save_scan
 LABEL = "Log analyzer"
 MAX_BYTES = 5 * 1024 * 1024
 FORM_OVERHEAD = 64 * 1024  # room for the multipart headers around the file
-ALLOWED_EXTENSIONS = (".log", ".txt")
+ALLOWED_EXTENSIONS = (".log", ".txt", ".csv")
 
 BURST_COUNT = 5  # this many failed logins ...
 BURST_WINDOW = timedelta(seconds=60)  # ... from one IP within this time is a burst
+SPRAY_USERS = 5  # one IP failing logins for this many different usernames ...
+SPRAY_WINDOW = timedelta(minutes=10)  # ... within this time is password spraying
+PROBING_COUNT = 5  # this many refused scans by one user ...
+PROBING_WINDOW = timedelta(minutes=10)  # ... within this time is target probing
+RATE_LIMIT_COUNT = 5  # this many rate-limit hits by one user or IP ...
+RATE_LIMIT_WINDOW = timedelta(hours=1)  # ... within this time is abuse
 AUTH_FAILURE_LIMIT = 10  # 401/403 responses to one IP
 NOT_FOUND_LIMIT = 20  # 404 responses to one IP
-MAX_FINDINGS_PER_RULE = 10  # report at most the 10 worst IPs for each rule
+MAX_FINDINGS_PER_RULE = 10  # report at most the 10 worst IPs or users for each rule
 TOP_IPS = 10
 
 # Starlette normally moves uploads larger than 1 MB into a temporary file on disk.
@@ -44,20 +57,36 @@ MultiPartParser.spool_max_size = MAX_BYTES + FORM_OVERHEAD
 SYSLOG_LINE = re.compile(
     r"^(?:(?P<month>[A-Z][a-z]{2})\s+(?P<day>\d{1,2}) (?P<clock>\d\d:\d\d:\d\d)"  # Oct  5 10:00:01
     r"|(?P<iso>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\S*)"  # or 2026-10-05T10:00:01.123+00:00
-    r" \S+ sshd(?:\[\d+\])?: (?P<message>.*)$"
+    r" \S+ sshd(?:-session)?(?:\[\d+\])?: (?P<message>.*)$"
 )
-FAILED_LOGIN = re.compile(r"Failed (?:password|publickey) for (?:invalid user )?\S+ from (?P<ip>[0-9a-fA-F.:]+)")
-ACCEPTED_LOGIN = re.compile(r"Accepted (?:password|publickey) for \S+ from (?P<ip>[0-9a-fA-F.:]+)")
+FAILED_LOGIN = re.compile(
+    r"Failed (?:password|publickey) for (?:invalid user )?(?P<user>\S+) from (?P<ip>[0-9a-fA-F.:]+)"
+)
+ACCEPTED_LOGIN = re.compile(r"Accepted (?:password|publickey) for (?P<user>\S+) from (?P<ip>[0-9a-fA-F.:]+)")
 NGINX_LINE = re.compile(r'^(?P<ip>[0-9a-fA-F.:]+) \S+ \S+ \[[^\]]+\] "[^"]*" (?P<status>\d{3}) ')
+
+# Sentinel Lite's activity log. The username in old lines can itself contain " | ",
+# so the action (lowercase letters and _) anchors the split.
+SENTINEL_OLD_LINE = re.compile(
+    r"^(?P<time>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) UTC \| (?P<user>.*) \| (?P<action>[a-z_]+) \| (?P<detail>.*)$"
+)
+SENTINEL_NEW_LINE = re.compile(r"^(?P<time>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) (?P<fields>.*)$")
+KEY_VALUE = re.compile(r'(\w+)=("(?:[^"\\]|\\.)*"|\S*)')
+FROM_IP = re.compile(r"\bfrom (?P<ip>[0-9a-fA-F.:]+)")
+SENTINEL_CSV_HEADER = "id,time_utc,"
 
 router = APIRouter()
 
 
 @dataclass
 class Event:
-    kind: str  # "failed_login", "accepted_login", "auth_failure" (401/403) or "not_found" (404)
+    # "failed_login", "accepted_login", "auth_failure" (401/403), "not_found" (404),
+    # "scan_refused" or "rate_limited"
+    kind: str
     ip: str
     time: datetime | None = None
+    user: str | None = None
+    target: str | None = None
 
 
 def syslog_time(match: re.Match) -> datetime:
@@ -68,12 +97,78 @@ def syslog_time(match: re.Match) -> datetime:
     return datetime.strptime(f"2000 {match['month']} {match['day']} {match['clock']}", "%Y %b %d %H:%M:%S")
 
 
+# --- Sentinel Lite's own log ---
+
+
+def unquote(value: str) -> str:
+    """'"a \\"b\\""' -> 'a "b"' (the reverse of activity_log.field)."""
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return re.sub(r"\\(.)", r"\1", value[1:-1])
+    return value
+
+
+def sentinel_event(time: datetime, ip: str, user: str, action: str, detail: str) -> Event | None:
+    """Turn one activity log entry into an Event, or None if it isn't one the rules use."""
+    if ip in ("", "-") and (found := FROM_IP.search(detail)):
+        ip = found["ip"]  # older entries kept the IP in the detail: "from 203.0.113.9"
+    ip = ip or "-"
+    if action in ("login_failed", "login"):
+        if ip == "-":
+            return None  # nothing to group by
+        return Event("failed_login" if action == "login_failed" else "accepted_login", ip, time, user)
+    if action == "scan_refused":
+        # detail: "port_scan example.com: not approved"
+        target = detail.split(":")[0].split(" ")[-1] if detail else None
+        return Event("scan_refused", ip, time, user, target)
+    if action == "rate_limited":
+        return Event("rate_limited", ip, time, user)
+    return None
+
+
+def parse_sentinel_line(line: str) -> Event | None:
+    if match := SENTINEL_NEW_LINE.match(line):
+        fields = {key: unquote(value) for key, value in KEY_VALUE.findall(match["fields"])}
+        if "action" not in fields:
+            return None
+        time = datetime.strptime(match["time"], "%Y-%m-%dT%H:%M:%SZ")
+        return sentinel_event(time, fields.get("ip", "-"), fields.get("user", "-"), fields["action"],
+                              fields.get("detail", ""))
+    if match := SENTINEL_OLD_LINE.match(line):
+        time = datetime.strptime(match["time"], "%Y-%m-%d %H:%M:%S")
+        return sentinel_event(time, "-", match["user"], match["action"], match["detail"])
+    return None
+
+
+def csv_cell(value: str | None) -> str:
+    """Undo the "'" the CSV download puts before cells like "=HYPERLINK(...)" (reports.safe_cell)."""
+    value = value or ""
+    return value[1:] if value[:1] == "'" and value[1:2] in ("=", "+", "-", "@") else value
+
+
+def parse_sentinel_csv(text: str) -> list[Event]:
+    """The admin page's CSV download, with or without the ip and result columns."""
+    events = []
+    for row in csv.DictReader(io.StringIO(text)):
+        try:
+            time = datetime.strptime(row["time_utc"], "%Y-%m-%d %H:%M:%S")
+        except (KeyError, TypeError, ValueError):
+            continue
+        event = sentinel_event(time, csv_cell(row.get("ip")), csv_cell(row.get("username")),
+                               csv_cell(row.get("action")), csv_cell(row.get("detail")))
+        if event:
+            events.append(event)
+    return events
+
+
+# --- Server logs ---
+
+
 def parse_line(line: str) -> Event | None:
     if match := SYSLOG_LINE.match(line):
         if failed := FAILED_LOGIN.search(match["message"]):
-            return Event("failed_login", failed["ip"], syslog_time(match))
+            return Event("failed_login", failed["ip"], syslog_time(match), failed["user"])
         if accepted := ACCEPTED_LOGIN.search(match["message"]):
-            return Event("accepted_login", accepted["ip"], syslog_time(match))
+            return Event("accepted_login", accepted["ip"], syslog_time(match), accepted["user"])
         return None
     if match := NGINX_LINE.match(line):
         status = match["status"]
@@ -81,30 +176,57 @@ def parse_line(line: str) -> Event | None:
             return Event("auth_failure", match["ip"])
         if status == "404":
             return Event("not_found", match["ip"])
-    return None
+        return None
+    return parse_sentinel_line(line)
 
 
-def largest_burst(times: list[datetime]) -> int:
-    """The most failures that fall inside any one BURST_WINDOW (a sliding window)."""
+# --- Rules ---
+
+
+def largest_burst(times: list[datetime], window: timedelta = BURST_WINDOW) -> int:
+    """The most events that fall inside any one `window` (a sliding window)."""
     times = sorted(times)
     best = start = 0
     for end in range(len(times)):
-        while times[end] - times[start] > BURST_WINDOW:
+        while times[end] - times[start] > window:
             start += 1
         best = max(best, end - start + 1)
     return best
 
 
+def most_usernames_in_window(attempts: list[tuple[datetime, str]], window: timedelta) -> int:
+    """The most DIFFERENT usernames tried inside any one `window`."""
+    attempts = sorted(attempts)
+    in_window: Counter = Counter()
+    best = start = 0
+    for when, username in attempts:
+        in_window[username] += 1
+        while when - attempts[start][0] > window:
+            old_username = attempts[start][1]
+            in_window[old_username] -= 1
+            if not in_window[old_username]:
+                del in_window[old_username]
+            start += 1
+        best = max(best, len(in_window))
+    return best
+
+
 def analyze_text(text: str) -> tuple[dict, list[dict]]:
     lines = text.splitlines()
-    events = [event for event in map(parse_line, lines) if event]
+    if lines and lines[0].lstrip("\ufeff").startswith(SENTINEL_CSV_HEADER):
+        events = parse_sentinel_csv(text.lstrip("\ufeff"))
+    else:
+        events = [event for event in map(parse_line, lines) if event]
     summary = {"lines": len(lines), "recognized_events": len(events), "top_ips": []}
     if not events:
         return summary, [make_finding("log.no_lines_recognized")]
 
     counts: dict[str, Counter] = defaultdict(Counter)  # ip -> {kind: count}
     failure_times: dict[str, list[datetime]] = defaultdict(list)
+    failed_usernames: dict[str, list[tuple[datetime, str]]] = defaultdict(list)  # ip -> (time, username)
     success_after_failures: dict[str, int] = {}  # ip -> failed logins before it got in
+    refused_scans: dict[str, list[datetime]] = defaultdict(list)  # user -> times
+    rate_limit_hits: dict[str, list[datetime]] = defaultdict(list)  # "user alice" / "IP 1.2.3.4" -> times
     for event in events:
         failures_so_far = counts[event.ip]["failed_login"]
         if event.kind == "accepted_login" and failures_so_far >= BURST_COUNT:
@@ -112,6 +234,15 @@ def analyze_text(text: str) -> tuple[dict, list[dict]]:
         counts[event.ip][event.kind] += 1
         if event.kind == "failed_login":
             failure_times[event.ip].append(event.time)
+            if event.user:
+                failed_usernames[event.ip].append((event.time, event.user))
+        elif event.kind == "scan_refused" and event.user:
+            refused_scans[event.user].append(event.time)
+        elif event.kind == "rate_limited":
+            if event.user and event.user != "-":
+                rate_limit_hits[f"user {event.user}"].append(event.time)
+            if event.ip != "-":
+                rate_limit_hits[f"IP {event.ip}"].append(event.time)
 
     findings = worst(
         [(n, make_finding("log.success_after_failures", ip=ip, failures_before=n))
@@ -121,6 +252,21 @@ def analyze_text(text: str) -> tuple[dict, list[dict]]:
     findings += worst(
         [(size, make_finding("log.failed_login_burst", ip=ip, failures_in_60s=size))
          for ip, size in bursts.items() if size >= BURST_COUNT]
+    )
+    sprays = {ip: most_usernames_in_window(tries, SPRAY_WINDOW) for ip, tries in failed_usernames.items()}
+    findings += worst(
+        [(users, make_finding("log.password_spray", ip=ip, usernames_in_10_min=users))
+         for ip, users in sprays.items() if users >= SPRAY_USERS]
+    )
+    probes = {user: largest_burst(times, PROBING_WINDOW) for user, times in refused_scans.items()}
+    findings += worst(
+        [(n, make_finding("log.target_probing", user=user, refused_scans_in_10_min=n))
+         for user, n in probes.items() if n >= PROBING_COUNT]
+    )
+    limited = {who: largest_burst(times, RATE_LIMIT_WINDOW) for who, times in rate_limit_hits.items()}
+    findings += worst(
+        [(n, make_finding("log.rate_limit_abuse", who=who, hits_in_1_hour=n))
+         for who, n in limited.items() if n >= RATE_LIMIT_COUNT]
     )
     findings += worst(
         [(c["auth_failure"], make_finding("log.http_auth_burst", ip=ip, responses=c["auth_failure"]))
@@ -155,35 +301,50 @@ def top_ips(counts: dict[str, Counter]) -> list[dict]:
     return sorted(rows, key=lambda row: row["total"], reverse=True)[:TOP_IPS]
 
 
+# --- Upload ---
+
+
+class UploadRefused(HTTPException):
+    """An upload that was turned away. `reason` is the short version for the activity log."""
+
+    def __init__(self, status_code: int, message: str, reason: str):
+        super().__init__(status_code, message)
+        self.reason = reason
+
+
 async def read_upload(request: Request) -> tuple[str, bytes]:
     """Return (file name, contents) of the uploaded file, enforcing the size and type limits."""
     length = request.headers.get("content-length", "")
     if not length.isdigit():
-        raise HTTPException(411, "The upload must say how big it is (Content-Length)")
+        raise UploadRefused(411, "The upload must say how big it is (Content-Length)", "no size given")
     if int(length) > MAX_BYTES + FORM_OVERHEAD:
-        raise HTTPException(413, "The file is larger than 5 MB")
+        raise UploadRefused(413, "The file is larger than 5 MB", "too big")
     form = await request.form(max_files=1, max_fields=1)
     try:
         upload = form.get("file")
         if not isinstance(upload, UploadFile):
-            raise HTTPException(400, "Choose a .log or .txt file to upload")
+            raise UploadRefused(400, "Choose a .log, .txt or .csv file to upload", "no file")
         name = Path(upload.filename or "upload.log").name[:100]
         if not name.lower().endswith(ALLOWED_EXTENSIONS):
-            raise HTTPException(400, "Only .log and .txt files are accepted")
+            raise UploadRefused(400, "Only .log, .txt and .csv files are accepted", "wrong type")
         data = await upload.read(MAX_BYTES + 1)
     finally:
         await form.close()
     if len(data) > MAX_BYTES:
-        raise HTTPException(413, "The file is larger than 5 MB")
+        raise UploadRefused(413, "The file is larger than 5 MB", "too big")
     return name, data
 
 
 @router.post("/log-analyzer")
 async def log_analyzer(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Upload as multipart form data with the file in a field called "file"."""
-    guard.check_rate_limit(user)
-    name, data = await read_upload(request)
-    text = data.decode("utf-8", errors="replace")
+    guard.check_rate_limit(db, user)
+    try:
+        name, data = await read_upload(request)
+    except UploadRefused as refused:
+        guard.log_activity(db, user, "scan_failed", f"log_analyzer upload: upload refused: {refused.reason}", "fail")
+        raise
+    text = data.decode("utf-8-sig", errors="replace")  # -sig: drops the byte-order mark of our CSV download
     # Parsing 5 MB takes a moment; run it in a worker thread so other requests aren't held up.
     summary, findings = await run_in_threadpool(analyze_text, text)
     guard.log_activity(db, user, "log_analyzer", name)

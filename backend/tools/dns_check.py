@@ -99,14 +99,16 @@ def analyze(a: list[str], mx: list[str], txt: list[str], dmarc: list[str]) -> li
 
 @router.post("/dns-check")
 def dns_check(body: DnsCheckRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    guard.check_rate_limit(user)
+    guard.check_rate_limit(db, user)
     domain = body.domain
     try:
         a, mx, txt = lookup(domain, "A"), lookup(domain, "MX"), lookup(domain, "TXT")
         dmarc = lookup(f"_dmarc.{domain}", "TXT")
     except dns.exception.DNSException:
+        guard.log_activity(db, user, "scan_failed", f"dns_check {domain}: DNS lookup failed or timed out", "fail")
         raise HTTPException(502, "The DNS lookup failed or timed out. Please try again.") from None
     if not (a or mx or txt):
+        guard.log_activity(db, user, "scan_failed", f"dns_check {domain}: no DNS records", "fail")
         raise HTTPException(404, f"No DNS records found for {domain}. Check the spelling.")
 
     spf = next((r for r in txt if r.lower().startswith("v=spf1")), None)

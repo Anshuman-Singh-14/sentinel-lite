@@ -10,6 +10,7 @@ import getpass
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 
+from backend import guard
 from backend.auth import hash_password
 from backend.db import SessionLocal, init_db
 from backend.models import User
@@ -46,6 +47,7 @@ def create_admin(username: str | None = None) -> None:
             print("  Passwords don't match, try again.")
         db.add(User(username=username, password_hash=hash_password(password), role="admin"))
         db.commit()
+        guard.record(db, guard.SYSTEM, "admin_created", f"{username} (command line)")
     print(f"Admin {username!r} created.")
 
 

@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from backend import access_requests, admin, auth, reports
+from backend import access_requests, admin, auth, guard, reports
 from backend.auth import hash_password
 from backend.config import ROOT, settings
 from backend.db import SessionLocal, init_db
@@ -52,6 +52,7 @@ def seed_admin_user():
             admin_account = User(**user_data)
             db.add(admin_account)
             db.commit()
+            guard.record(db, guard.SYSTEM, "admin_created", f"{admin_username} (from ADMIN_USER)")
             print(f"[*] Successfully seeded admin user '{admin_username}' from environment variables.")
     except Exception as e:
         db.rollback()
@@ -62,9 +63,13 @@ def seed_admin_user():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    init_db()
+    changes = init_db()
     seed_admin_user()
     access_requests.delete_stale_requests_now()
+    with SessionLocal() as db:
+        guard.record(db, guard.SYSTEM, "app_started", f"env={settings.app_env}")
+        if changes:
+            guard.record(db, guard.SYSTEM, "database_migrated", ", ".join(changes))
     yield
 
 
@@ -96,6 +101,17 @@ if settings.cors_origins:
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["Content-Type"],
     )
+
+
+@app.middleware("http")
+async def remember_client_ip(request: Request, call_next):
+    """Make the visitor's IP available to guard.record(), so every event logs it.
+
+    request.client.host is already the real visitor IP behind Caddy (uvicorn --proxy-headers).
+    Each request runs in its own context, so the value never leaks into another request.
+    """
+    guard.current_ip.set(request.client.host if request.client else "-")
+    return await call_next(request)
 
 
 @app.middleware("http")

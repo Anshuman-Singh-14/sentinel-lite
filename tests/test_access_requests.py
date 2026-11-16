@@ -526,7 +526,7 @@ def test_email_change_activity_is_masked(activity_log_file, user_client, db, out
         ("email_changed", "a***@first.com -> a***@second.com"),
     ]
     log = activity_log_file.read_text(encoding="utf-8")
-    assert "| email_changed |" in log
+    assert " action=email_changed " in log
     assert "alice@first.com" not in log and "alice@second.com" not in log
 
 
@@ -545,7 +545,7 @@ def test_emails_passwords_and_tokens_never_reach_the_activity_log(activity_log_f
 
     log = activity_log_file.read_text(encoding="utf-8")
     for event in ["access_requested", "access_request_verified", "access_request_approved", "password_changed"]:
-        assert f"| {event} |" in log, event
+        assert f" action={event} " in log, event
     assert "n***@example.com" in log
     for secret in ["newbie@example.com", temporary, "my-own-password", PASSWORD, verify_token]:
         assert secret not in log

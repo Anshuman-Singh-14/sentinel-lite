@@ -97,8 +97,8 @@ def findings_for(open_ports: list[int]) -> list[dict]:
 
 @router.post("/port-scan")
 def port_scan(body: PortScanRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    guard.check_rate_limit(user)
-    ip = guard.check_target(db, body.target)
+    guard.check_rate_limit(db, user)
+    ip = guard.check_target(db, body.target, user, "port_scan")
     ports = sorted(set(body.ports)) if body.ports else sorted(COMMON_PORTS)
     # FastAPI runs this normal (non-async) route in a worker thread, so we can
     # start a small event loop here just for the concurrent connections.

@@ -483,9 +483,21 @@ select.role-select {
   line-height: 1.4rem;
 }
 
-.status-badge.active {
+.status-badge.active,
+.status-badge.result-ok {
   background: #e3f1e4;
   color: var(--low);
+}
+
+/* Activity log results: "fail" (wrong password, scan error) and "denied" (refused by a rule). */
+.status-badge.result-fail {
+  background: #fde8e6;
+  color: var(--high);
+}
+
+.status-badge.result-denied {
+  background: #fdf0e2;
+  color: var(--medium);
 }
 
 /* The "type the username to delete" box, in the middle of the screen over a dimmed page. */

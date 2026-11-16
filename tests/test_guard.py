@@ -52,12 +52,12 @@ def test_rate_limiter_blocks_then_recovers(monkeypatch):
     assert limiter.allow("alice")  # the window has passed
 
 
-def test_scan_rate_limit_is_ten_per_minute(make_user):
+def test_scan_rate_limit_is_ten_per_minute(db, make_user):
     user = make_user("alice")
     for _ in range(10):
-        guard.check_rate_limit(user)
+        guard.check_rate_limit(db, user)
     with pytest.raises(HTTPException) as error:
-        guard.check_rate_limit(user)
+        guard.check_rate_limit(db, user)
     assert error.value.status_code == 429
 
 

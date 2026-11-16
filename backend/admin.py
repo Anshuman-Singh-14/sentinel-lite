@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ACTIVITY_LIMIT = 200  # newest entries shown on the admin page (the downloads have all of them)
 ACTIVITY_PAGE_MAX = 5000  # most entries the full-page log (/admin/activity) can ask for
-ACTIVITY_CSV_COLUMNS = ["id", "time_utc", "username", "action", "detail"]
+ACTIVITY_CSV_COLUMNS = ["id", "time_utc", "ip", "username", "action", "result", "detail"]
 
 
 class NewUser(BaseModel):
@@ -127,27 +127,25 @@ def change_user(
         ):
             raise HTTPException(400, "A display name can't be the same as a username")
 
-    changes = []
-    if body.role is not None:
+    # (action, detail) for each thing that really changes, logged once the change is saved.
+    events = []
+    if body.role is not None and body.role != user.role:
+        events.append(("user_role_changed", f"{user.username}: {user.role} -> {body.role}"))
         user.role = body.role
-        changes.append(f"role={body.role}")
-    if body.is_active is not None:
+    if body.is_active is not None and body.is_active != user.is_active:
+        events.append(("user_activated" if body.is_active else "user_deactivated", user.username))
         user.is_active = body.is_active
-        changes.append("activated" if body.is_active else "deactivated")
     if body.password is not None:
         user.password_hash = hash_password(body.password)
         user.must_change_password = True  # the admin knows it, so the user picks a new one
-        changes.append("password reset")
-    display_name_changed = False
+        events.append(("user_password_reset", user.username))
     if body.display_name is not None and (body.display_name or None) != user.display_name:
         user.display_name = body.display_name or None  # "" clears it
-        display_name_changed = True
-    db.commit()
-    if changes or not display_name_changed:
-        log_activity(db, admin, "user_changed", f"{user.username}: {', '.join(changes) or 'no change'}")
-    if display_name_changed:
         shown = f"'{user.display_name}'" if user.display_name else "cleared"
-        log_activity(db, admin, "user_display_name_changed", f"{user.username}: {shown}")
+        events.append(("user_display_name_changed", f"{user.username}: {shown}"))
+    db.commit()
+    for action, detail in events:
+        log_activity(db, admin, action, detail)
     return user_to_dict(user)
 
 
@@ -393,6 +391,8 @@ def list_activity(
             "username": entry.username,
             "action": entry.action,
             "detail": entry.detail,
+            "ip": entry.ip,
+            "result": entry.result,
             "created_at": entry.created_at.isoformat(),
         }
         for entry in entries
@@ -409,10 +409,11 @@ def activity_to_csv(entries) -> str:
     writer = csv.writer(output)
     writer.writerow(ACTIVITY_CSV_COLUMNS)
     for entry in entries:
-        row = [str(entry.id), entry.created_at.strftime("%Y-%m-%d %H:%M:%S"), entry.username, entry.action,
-               entry.detail]
+        row = [str(entry.id), entry.created_at.strftime("%Y-%m-%d %H:%M:%S"), entry.ip, entry.username,
+               entry.action, entry.result, entry.detail]
         # safe_cell: a username like "=HYPERLINK(...)" typed at login must not run in Excel.
-        writer.writerow([safe_cell(cell) for cell in row])
+        # A lone "-" (no IP) is not a formula, so it stays readable.
+        writer.writerow([cell if cell == "-" else safe_cell(cell) for cell in row])
     # The byte-order mark makes Excel read the file as UTF-8 instead of guessing.
     return "\ufeff" + output.getvalue()
 

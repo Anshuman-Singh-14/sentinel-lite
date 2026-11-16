@@ -74,8 +74,11 @@ but changing it breaks the signature, so a user can't edit it to become someone 
   10 per minute) or per IP (logins: 5 per minute). Each time, timestamps older than 60 seconds
   are removed. If the list is still full, the request gets **429**. A lock makes this safe when
   FastAPI handles several requests at once.
-- **Activity log**: `log_activity()` writes a row (`username`, `action`, `detail`, time) for every
-  login, failed login, logout, scan and admin change. Admins see the newest 200 on the Admin page.
+- **Activity log**: `log_activity()` writes a row (`username`, `action`, `detail`, `ip`, `result`,
+  time) for every login, failed login, logout, scan, admin change and refused action. The IP comes
+  from a small middleware in `app.py`; `result` is `ok`, `fail` or `denied`. Admins see the newest
+  200 on the Admin page. `tests/test_logging_coverage.py` fails if a new POST/PATCH/DELETE route
+  isn't added to its list of logged actions.
 
 ## 5. Known limitations
 

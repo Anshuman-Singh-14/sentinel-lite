@@ -23,13 +23,13 @@ export default function LogAnalyzerPage() {
   return (
     <ToolPage
       title="Log analyzer"
-      intro="Upload an sshd auth log or an nginx access log to find password-guessing bursts and the most suspicious IP addresses. The file is analysed in memory and never saved."
+      intro="Upload an sshd auth log, an nginx access log or Sentinel Lite's own activity log (TXT or CSV download) to find password guessing and spraying, probing and the most suspicious IP addresses. The file is analysed in memory and never saved."
       request={scan}
     >
       <form className="card tool-form" onSubmit={submit}>
         <label>
-          Log file (.log or .txt, max 5 MB)
-          <input type="file" accept=".log,.txt" onChange={(e) => setFile(e.target.files[0] ?? null)} required />
+          Log file (.log, .txt or .csv, max 5 MB)
+          <input type="file" accept=".log,.txt,.csv" onChange={(e) => setFile(e.target.files[0] ?? null)} required />
         </label>
         <button type="submit" disabled={scan.busy || !file}>
           {scan.busy ? "Analysing…" : "Analyse"}

@@ -22,7 +22,7 @@ A small **defensive** security toolkit for learning. It runs simple checks on sy
 | DNS & email check | A, MX and TXT records; are SPF and DMARC present and valid? | Server |
 | Port scanner | TCP connect scan of common ports or your own list (max 100). Admin-approved targets only. | Server |
 | Website check | HTTPS, certificate expiry and 6 security headers. Admin-approved targets only. | Server |
-| Log analyzer | Upload an auth or nginx log (max 5 MB); finds failed-login bursts and the most suspicious IPs. The file is never saved. | Server |
+| Log analyzer | Upload an sshd auth log, an nginx log or Sentinel Lite's own activity log (.log, .txt or .csv, max 5 MB); finds failed-login bursts, password spraying, target probing, rate-limit abuse and the most suspicious IPs. The file is never saved. | Server |
 | Password strength, hash generator, Base64/URL encoder | Handy helpers whose input never leaves your browser | Browser only |
 
 Every finding has a **title**, a **severity** (low / medium / high), an **explanation** and a **fix**, all taken from one file: `backend/knowledge.json`.

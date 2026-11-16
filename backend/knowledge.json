@@ -188,10 +188,28 @@
     "explanation": "This IP asked for many pages that do not exist. That is typical of scanners looking for admin panels, backups or known vulnerable software (for example /wp-login.php on a site that isn't WordPress).",
     "fix": "Look at which paths it requested to see what it was searching for, make sure none of those exist on your server, and consider blocking or rate-limiting the IP."
   },
+  "log.password_spray": {
+    "title": "Password spraying: one IP trying many usernames",
+    "severity": "high",
+    "explanation": "One IP address failed to log in as 5 or more different usernames within 10 minutes. Instead of guessing many passwords for one account (which trips lockouts), the attacker tries a few common passwords against many accounts. Each account sees only one or two failures, so it is easy to miss.",
+    "fix": "Block the IP. Check whether any of those accounts later logged in successfully, and reset their passwords if so. Make sure no account uses a common password, and limit login attempts per IP, not only per account."
+  },
+  "log.target_probing": {
+    "title": "One user repeatedly scanning targets that are not approved",
+    "severity": "medium",
+    "explanation": "A user had 5 or more scans refused within 10 minutes because the targets were not approved or pointed to internal addresses. That looks like someone trying to find out what the scanner will reach, rather than a single typo.",
+    "fix": "Look at which targets they tried in the activity log and ask the user about it. If it was deliberate, deactivate the account. Only approve targets the team owns or has written permission to test."
+  },
+  "log.rate_limit_abuse": {
+    "title": "Repeated rate-limit hits from one user or IP",
+    "severity": "medium",
+    "explanation": "One user or IP address hit a rate limit (logins, scans, account requests or email links) 5 or more times within an hour. A person rarely does that by accident; it usually means a script hammering the app.",
+    "fix": "Check what the user or IP was doing just before the limits were hit. Block the IP or deactivate the account if the traffic is clearly automated."
+  },
   "log.no_lines_recognized": {
     "title": "No lines in a known log format",
     "severity": "low",
-    "explanation": "None of the lines looked like an sshd authentication log or an nginx access log, so nothing could be analyzed. The file may be empty or in a different format.",
-    "fix": "Upload /var/log/auth.log (sshd) or /var/log/nginx/access.log in their default formats."
+    "explanation": "None of the lines looked like an sshd authentication log, an nginx access log or a Sentinel Lite activity log, so nothing could be analyzed. The file may be empty or in a different format.",
+    "fix": "Upload /var/log/auth.log (sshd), /var/log/nginx/access.log in their default formats, or Sentinel Lite's activity log (activity.log, or the TXT or CSV download from the Admin page)."
   }
 }

@@ -53,7 +53,7 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:2026.9.3
-    # HTTP/2 over TCP 443: many networks block QUIC (UDP 7844), cloudflared's default.
+    # HTTP/2 over TCP 7844: many networks block QUIC (UDP 7844), cloudflared's default.
     command: tunnel --no-autoupdate --protocol http2 run
     environment:
       TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
