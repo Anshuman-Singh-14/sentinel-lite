@@ -34,12 +34,30 @@ def test_email_is_required_for_users_but_not_admins(admin_client):
     assert admin.status_code == 200
     assert admin.json()["has_email"] is False
 
-    # Turning an admin without an email into a user needs an email first.
+    # Turning an admin without an email into a user needs an email first, which only they can add.
     admin_id = admin.json()["id"]
     assert admin_client.patch(f"/api/admin/users/{admin_id}", json={"role": "user"}).status_code == 400
-    changed = admin_client.patch(f"/api/admin/users/{admin_id}", json={"role": "user", "email": "r@x.com"})
+    assert admin_client.patch(f"/api/admin/users/{admin_id}", json={"role": "user", "email": "r@x.com"}).status_code == 400
+
+
+def test_role_user_works_once_the_account_has_an_email(admin_client, make_user, db):
+    root = make_user("root2", role="admin")
+    root.email = "root2@example.com"  # added by root2 themselves under Change email
+    db.commit()
+    changed = admin_client.patch(f"/api/admin/users/{root.id}", json={"role": "user"})
     assert changed.status_code == 200
-    assert changed.json()["email"] == "r@x.com"
+    assert changed.json()["role"] == "user"
+
+
+def test_patch_ignores_an_email_field(admin_client, make_user, db):
+    bob = make_user("bob")
+    bob.email, bob.email_verified = "bob@example.com", True
+    db.commit()
+    assert admin_client.patch(f"/api/admin/users/{bob.id}", json={"email": "evil@example.com"}).status_code == 200
+    both = admin_client.patch(f"/api/admin/users/{bob.id}", json={"email": "evil@example.com", "is_active": False})
+    assert both.status_code == 200 and both.json()["is_active"] is False
+    db.expire_all()
+    assert (bob.email, bob.email_verified) == ("bob@example.com", True)
 
 
 def test_emails_are_unique(admin_client):

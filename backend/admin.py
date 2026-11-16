@@ -48,7 +48,7 @@ class UserChange(BaseModel):
     role: Literal["admin", "user"] | None = None
     is_active: bool | None = None
     password: Password | None = None
-    email: Email | None = None  # can be changed but not removed
+    # No email field: people change their own email (with a link to the new address), see access_requests.py.
     display_name: DisplayName | None = None  # admins only; "" clears it
 
 
@@ -114,8 +114,10 @@ def change_user(
     if user.id == admin.id and (body.role == "user" or body.is_active is False):
         raise HTTPException(400, "You can't remove your own admin rights or deactivate yourself")
     # Existing users without an email keep working; only turning someone into a user needs one.
-    if body.role == "user" and user.role != "user" and not (body.email or user.email):
-        raise HTTPException(400, "Add an email address before changing this account to role user")
+    if body.role == "user" and user.role != "user" and not user.email:
+        raise HTTPException(
+            400, "This account needs an email address before it can be changed to role user. "
+                 "They can add one under Change email.")
     if body.display_name is not None:
         if (body.role or user.role) != "admin":
             raise HTTPException(400, "Only admins have a display name")
@@ -126,11 +128,6 @@ def change_user(
             raise HTTPException(400, "A display name can't be the same as a username")
 
     changes = []
-    if body.email is not None and body.email != user.email:
-        check_email_free(db, body.email, user.id)
-        user.email = body.email
-        user.email_verified = False  # typed in by an admin, not confirmed by the user
-        changes.append("email changed")
     if body.role is not None:
         user.role = body.role
         changes.append(f"role={body.role}")
