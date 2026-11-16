@@ -143,7 +143,13 @@ All data (users, approved targets, scan history, activity log) is one SQLite fil
 docker compose cp backend:/data/sentinel.db ./sentinel-backup.db
 ```
 
-Every event is also appended to a plain-text log, `/data/activity.log`, in the same volume. Admins can download the full log as TXT or CSV from the Admin page. On the server:
+Every event is also appended to a plain-text log, `/data/activity.log`, in the same volume, one line per event:
+
+```
+2026-11-16T06:10:01Z ip=203.0.113.9 user=alice action=login_failed result=fail detail="wrong password"
+```
+
+`result` is `ok`, `fail` or `denied` (refused by a rule such as a rate limit or an unapproved target); `user=system` marks startup and migration events. Lines written before this format (`... UTC | user | action | detail`) stay as they are. Admins can download the full log as TXT or CSV from the Admin page, and the Log analyzer reads all three forms. On the server:
 
 ```bash
 docker compose exec backend tail -f /data/activity.log   # watch events live (Ctrl+C to stop)
@@ -172,7 +178,7 @@ Port scans and website checks are sent **from the machine running Docker**. Read
 | Problem | What to check |
 |---|---|
 | Cloudflare "Error 1033" / tunnel shows **Down** | `docker compose --profile tunnel logs cloudflared`. Usually a wrong or missing `CF_TUNNEL_TOKEN` in `.env`; fix it and run the up command again. |
-| `Failed to dial a quic connection` in the cloudflared log | The network blocks QUIC (UDP 7844). The compose file already makes cloudflared use HTTP/2 over TCP 443 (`--protocol http2`), so this should not appear; if it does, check that `docker-compose.yml` is up to date. |
+| `Failed to dial a quic connection` in the cloudflared log | The network blocks QUIC (UDP 7844). The compose file already makes cloudflared use HTTP/2 over TCP 7844 (`--protocol http2`), so this should not appear; if it does, check that `docker-compose.yml` is up to date. |
 | Cloudflare "502 Bad Gateway" | A public hostname points at the wrong service or port. It must be `frontend:80` or `backend:8000`, type HTTP (not HTTPS, not `localhost`). |
 | Page loads, but login says "Failed to fetch" | The frontend was built with the wrong `VITE_API_URL`, or the page's address isn't listed in `ALLOWED_ORIGINS`. Fix `.env`, then `up -d --build`. |
 | Login returns 500 | `docker compose logs backend --tail 100` shows the traceback. A bad `SECRET_KEY` stops the backend from starting at all; the same command shows the reason. |
