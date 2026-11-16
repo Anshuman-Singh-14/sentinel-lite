@@ -160,7 +160,7 @@ def test_rate_limit_abuse_is_flagged_by_user_and_by_ip():
 
 def test_burst_and_success_after_failures_apply_to_sentinel_logins():
     log = [sl_new("alice", "login_failed", second=s) for s in range(0, 50, 10)]
-    log.append(sl_new("alice", "login", second=55, detail="from web", result="ok"))
+    log.append(sl_new("alice", "login", second=55, detail="", result="ok"))
     assert sorted(keys(analyze_text("\n".join(log))[1])) == ["log.failed_login_burst", "log.success_after_failures"]
 
 

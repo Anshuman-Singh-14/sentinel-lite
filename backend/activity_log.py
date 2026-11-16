@@ -7,7 +7,7 @@ watch it live with:  docker compose exec backend tail -f /data/activity.log
 Each line is key=value pairs, easy to read and easy for tools (or our own log
 analyzer) to parse:
 
-    2026-11-16T06:10:01Z ip=203.0.113.9 user=alice action=login result=ok detail="from web"
+    2026-11-16T06:10:01Z ip=203.0.113.9 user=alice action=login result=ok detail=""
 
 Lines written before this format (2026-10-30 06:51:12 UTC | alice | login | from ...)
 stay in the file as they are; the log analyzer reads both.
@@ -45,7 +45,7 @@ def field(value: str) -> str:
 
 
 def format_line(entry: Activity) -> str:
-    """e.g. 2026-11-16T06:10:01Z ip=203.0.113.9 user=alice action=login result=ok detail="from web" """
+    """e.g. 2026-11-16T06:10:01Z ip=203.0.113.9 user=alice action=login result=ok detail="" """
     when = entry.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")  # times are stored in UTC
     pairs = [("ip", entry.ip), ("user", entry.username), ("action", entry.action), ("result", entry.result),
              ("detail", entry.detail)]

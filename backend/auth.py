@@ -126,7 +126,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         guard.record(db, body.username, "login_failed", reason, "fail")
         raise HTTPException(401, "Wrong username or password")
     start_session(request, user)
-    guard.log_activity(db, user, "login", "from web")  # the IP has its own column
+    guard.log_activity(db, user, "login")  # no detail needed: the IP has its own column
     return user_to_dict(user)
 
 
