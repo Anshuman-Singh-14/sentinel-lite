@@ -66,7 +66,9 @@ function ActivityTable({ entries, error }) {
         <tr>
           <th>When</th>
           <th>User</th>
+          <th>IP</th>
           <th>Action</th>
+          <th>Result</th>
           <th>Details</th>
         </tr>
       </thead>
@@ -75,13 +77,19 @@ function ActivityTable({ entries, error }) {
           <tr key={entry.id}>
             <td>{formatDate(entry.created_at)}</td>
             <td>{entry.username}</td>
+            <td className="nowrap">
+              <code>{entry.ip}</code>
+            </td>
             <td>{entry.action.replaceAll("_", " ")}</td>
+            <td>
+              <span className={`status-badge result-${entry.result}`}>{entry.result}</span>
+            </td>
             <td>{entry.detail}</td>
           </tr>
         ))}
         {entries.length === 0 && !error && (
           <tr>
-            <td colSpan={4} className="muted">
+            <td colSpan={6} className="muted">
               No activity yet.
             </td>
           </tr>
