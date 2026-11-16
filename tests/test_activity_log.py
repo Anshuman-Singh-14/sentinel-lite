@@ -35,7 +35,7 @@ def test_every_event_is_appended_to_the_log_file(activity_log_file, admin_client
         ("admin", "logout", "testclient", "ok"),
     ]
     assert lines[2].endswith(" action=target_added result=ok detail=example.com")
-    assert lines[1].endswith(' detail="from web"')
+    assert lines[1].endswith(' action=login result=ok detail=""')
 
 
 def test_a_username_cannot_add_fake_lines_or_fields_to_the_log(activity_log_file, client):
