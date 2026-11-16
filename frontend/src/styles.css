@@ -449,6 +449,27 @@ code {
   margin-right: 0.8rem;
 }
 
+/* The "type the username to delete" box, in the middle of the screen over a dimmed page. */
+.confirm-dialog {
+  width: min(420px, calc(100vw - 2rem));
+  color: var(--text);
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+
+.confirm-dialog h3 {
+  margin-top: 0;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+}
+
 /* The links above the activity log, in groups that wrap on narrow screens. */
 .log-toolbar {
   display: flex;

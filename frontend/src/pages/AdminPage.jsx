@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import ActivityLog from "../components/ActivityLog.jsx";
 import { formatDate, formatShortDate } from "../format.js";
@@ -236,7 +236,9 @@ function Users({ currentUser }) {
   const users = useList("/api/admin/users");
   const [form, setForm] = useState(NEW_USER);
   const [tab, setTab] = useState("user"); // which role's list is shown
+  const [deleting, setDeleting] = useState(null); // the user in the delete dialog
   const shown = users.items.filter((user) => user.role === tab);
+  const columns = tab === "admin" ? 6 : 5;
 
   async function create(event) {
     event.preventDefault();
@@ -269,6 +271,14 @@ function Users({ currentUser }) {
   function editEmail(user) {
     const email = window.prompt(`Email address for ${user.username}:`, user.email ?? "");
     if (email) change(user, { email });
+  }
+
+  function editDisplayName(user) {
+    const name = window.prompt(
+      `Display name for ${user.username}, shown in approval and rejection emails (leave empty to clear):`,
+      user.display_name ?? "",
+    );
+    if (name !== null) change(user, { display_name: name });
   }
 
   function changeRole(user, role) {
@@ -328,10 +338,16 @@ function Users({ currentUser }) {
           { value: "admin", label: "Admins", count: users.items.filter((u) => u.role === "admin").length },
         ]}
       />
+      {tab === "admin" && (
+        <p className="muted small">
+          Display name: shown to people in approval and rejection emails instead of the username.
+        </p>
+      )}
       <table className="data">
         <thead>
           <tr>
             <th>Username</th>
+            {tab === "admin" && <th>Display name</th>}
             <th>Email</th>
             <th>Role</th>
             <th>Status</th>
@@ -341,7 +357,7 @@ function Users({ currentUser }) {
         <tbody>
           {shown.length === 0 && (
             <tr>
-              <td colSpan={5} className="muted">
+              <td colSpan={columns} className="muted">
                 Nobody here yet.
               </td>
             </tr>
@@ -353,6 +369,7 @@ function Users({ currentUser }) {
                 <td>
                   {user.username} {isMe && <span className="muted">(you)</span>}
                 </td>
+                {tab === "admin" && <td>{user.display_name ?? <span className="muted">none</span>}</td>}
                 <td>{user.email ?? <span className="muted">none</span>}</td>
                 <td>
                   <select value={user.role} disabled={isMe} onChange={(e) => changeRole(user, e.target.value)}>
@@ -373,13 +390,91 @@ function Users({ currentUser }) {
                   <button type="button" className="link-button" onClick={() => editEmail(user)}>
                     Edit email
                   </button>
+                  {tab === "admin" && (
+                    <button type="button" className="link-button" onClick={() => editDisplayName(user)}>
+                      Edit display name
+                    </button>
+                  )}
+                  {!isMe && (
+                    <button type="button" className="danger" onClick={() => setDeleting(user)}>
+                      Delete
+                    </button>
+                  )}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      {deleting && (
+        <DeleteUserDialog
+          key={deleting.id}
+          user={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            users.setError("");
+            users.reload();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// Asks the admin to type the username before an account is deleted for good.
+// A native <dialog>: Escape and Cancel close it, and the page behind can't be clicked.
+function DeleteUserDialog({ user, onClose, onDeleted }) {
+  const dialog = useRef(null);
+  const [typed, setTyped] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    dialog.current.showModal();
+  }, []);
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await api(`/api/admin/users/${user.id}`, { method: "DELETE", body: { confirm_username: typed } });
+      onDeleted();
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={dialog} className="card confirm-dialog" onClose={onClose} aria-labelledby="delete-user-title">
+      <form onSubmit={submit}>
+        <h3 id="delete-user-title">Delete {user.username}?</h3>
+        <p>
+          This permanently deletes <strong>{user.username}</strong> and their scan history. Type the username to
+          confirm.
+        </p>
+        <label>
+          Username
+          <input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+          />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="dialog-buttons">
+          <button type="button" className="link-button" onClick={() => dialog.current.close()}>
+            Cancel
+          </button>
+          <button type="submit" className="danger" disabled={typed !== user.username || busy}>
+            Delete
+          </button>
+        </div>
+      </form>
+    </dialog>
   );
 }
 
