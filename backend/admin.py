@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from backend import mailer
@@ -20,9 +20,9 @@ from backend.activity_log import format_line
 from backend.auth import generate_password, hash_password, require_admin, user_to_dict
 from backend.db import get_db
 from backend.guard import log_activity, mask_email
-from backend.models import AccessRequest, Activity, AllowedTarget, User, utcnow
+from backend.models import AccessRequest, Activity, AllowedTarget, EmailToken, Scan, User, utcnow
 from backend.reports import safe_cell
-from backend.validation import Email, Hostname, Password, Username
+from backend.validation import DisplayName, Email, Hostname, Password, Username
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -49,6 +49,11 @@ class UserChange(BaseModel):
     is_active: bool | None = None
     password: Password | None = None
     email: Email | None = None  # can be changed but not removed
+    display_name: DisplayName | None = None  # admins only; "" clears it
+
+
+class UserDeletion(BaseModel):
+    confirm_username: str = Field(max_length=32)
 
 
 class NewTarget(BaseModel):
@@ -111,6 +116,14 @@ def change_user(
     # Existing users without an email keep working; only turning someone into a user needs one.
     if body.role == "user" and user.role != "user" and not (body.email or user.email):
         raise HTTPException(400, "Add an email address before changing this account to role user")
+    if body.display_name is not None:
+        if (body.role or user.role) != "admin":
+            raise HTTPException(400, "Only admins have a display name")
+        # Display names are emailed to the public, and a username is half of a login.
+        if body.display_name and db.scalar(
+            select(User).where(func.lower(User.username) == body.display_name.lower())
+        ):
+            raise HTTPException(400, "A display name can't be the same as a username")
 
     changes = []
     if body.email is not None and body.email != user.email:
@@ -128,9 +141,56 @@ def change_user(
         user.password_hash = hash_password(body.password)
         user.must_change_password = True  # the admin knows it, so the user picks a new one
         changes.append("password reset")
+    display_name_changed = False
+    if body.display_name is not None and (body.display_name or None) != user.display_name:
+        user.display_name = body.display_name or None  # "" clears it
+        display_name_changed = True
     db.commit()
-    log_activity(db, admin, "user_changed", f"{user.username}: {', '.join(changes) or 'no change'}")
+    if changes or not display_name_changed:
+        log_activity(db, admin, "user_changed", f"{user.username}: {', '.join(changes) or 'no change'}")
+    if display_name_changed:
+        shown = f"'{user.display_name}'" if user.display_name else "cleared"
+        log_activity(db, admin, "user_display_name_changed", f"{user.username}: {shown}")
     return user_to_dict(user)
+
+
+def is_last_active_admin(db: Session, user: User) -> bool:
+    if user.role != "admin" or not user.is_active:
+        return False
+    active_admins = db.scalar(select(func.count()).where(User.role == "admin", User.is_active.is_(True)))
+    return active_admins <= 1
+
+
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int, body: UserDeletion, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    """Delete an account and its scan history. Account requests and activity entries stay:
+    they are history and keep the username as plain text."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "User not found")
+    if user.id == admin.id:
+        raise HTTPException(400, "You can't delete your own account")
+    if body.confirm_username != user.username:
+        raise HTTPException(400, f"Type the username {user.username} exactly to confirm")
+    # The caller is always another active admin, so this is a safety net that should never trip.
+    if is_last_active_admin(db, user):
+        raise HTTPException(400, "You can't delete the last active admin")
+
+    scans = db.execute(delete(Scan).where(Scan.user_id == user.id)).rowcount
+    db.execute(delete(EmailToken).where(EmailToken.purpose == "verify_user_email", EmailToken.ref_id == user.id))
+    username, role = user.username, user.role
+    db.delete(user)
+    db.commit()
+    log_activity(db, admin, "user_deleted", f"{username} ({role}, {scans} scans deleted)")
+    return {"ok": True}
+
+
+def reviewer_name(db: Session, access_request: AccessRequest) -> str | None:
+    """The reviewing admin's display name as it is now (None if unset or the admin is gone)."""
+    reviewer = db.scalar(select(User).where(User.username == access_request.reviewed_by))
+    return reviewer.display_name if reviewer else None
 
 
 # --- Account requests (see access_requests.py for how they are made) ---
@@ -219,7 +279,10 @@ def approve_request(
     access_request.password_hash = None  # the user row has it now
     db.commit()
     log_activity(db, admin, "access_request_approved", f"{user.username} ({mask_email(user.email)})")
-    email = mailer.approved_generated(user.username, password) if password else mailer.approved(user.username)
+    if password:
+        email = mailer.approved_generated(user.username, password, admin.display_name)
+    else:
+        email = mailer.approved(user.username, admin.display_name)
     background.add_task(deliver, access_request.id, user.username, user.email, *email)
     return request_to_dict(access_request)
 
@@ -236,7 +299,7 @@ def reject_request(
     access_request = claim(db, request_id, admin, "rejected", reject_reason=reason, password_hash=None)
     db.commit()
     log_activity(db, admin, "access_request_rejected", access_request.username)
-    email = mailer.rejected(access_request.username, reason)
+    email = mailer.rejected(access_request.username, reason, admin.display_name)
     background.add_task(deliver, access_request.id, access_request.username, access_request.email, *email)
     return request_to_dict(access_request)
 
@@ -252,11 +315,13 @@ def resend_request_email(
     if access_request.email_status != "failed":
         raise HTTPException(409, "Only failed emails can be resent")
 
+    reviewer = reviewer_name(db, access_request)
     if access_request.status == "rejected":
-        email = mailer.rejected(access_request.username, access_request.reject_reason)
+        email = mailer.rejected(access_request.username, access_request.reject_reason, reviewer)
     elif access_request.status == "approved":
         user = db.scalar(select(User).where(User.username == access_request.username))
-        if user is None:
+        # A deleted account's username can be taken again by someone else: never send them this email.
+        if user is None or user.email != access_request.email:
             raise HTTPException(409, "That account no longer exists")
         if access_request.wants_generated:
             # The first temporary password was never stored, so make a new one.
@@ -264,9 +329,9 @@ def resend_request_email(
                 raise HTTPException(409, f"{user.username} has already logged in and chosen a password")
             password = generate_password()
             user.password_hash = hash_password(password)
-            email = mailer.approved_generated(user.username, password)
+            email = mailer.approved_generated(user.username, password, reviewer)
         else:
-            email = mailer.approved(user.username)
+            email = mailer.approved(user.username, reviewer)
     else:
         raise HTTPException(409, "There is no email to resend for this request")
 

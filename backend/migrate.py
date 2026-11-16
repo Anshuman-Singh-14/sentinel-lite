@@ -15,6 +15,7 @@ USER_COLUMNS = {
     "email": "VARCHAR(254)",
     "email_verified": "BOOLEAN NOT NULL DEFAULT 0",
     "must_change_password": "BOOLEAN NOT NULL DEFAULT 0",
+    "display_name": "VARCHAR(50)",
 }
 
 

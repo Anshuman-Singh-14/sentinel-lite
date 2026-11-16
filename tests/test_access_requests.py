@@ -1,7 +1,7 @@
 import re
 from datetime import timedelta
 
-from conftest import PASSWORD
+from conftest import PASSWORD, login
 
 from backend import mailer
 from backend.access_requests import CHECK_EMAIL, TERMS_VERSION
@@ -303,6 +303,80 @@ def test_failed_email_is_recorded_and_can_be_resent(admin_client, db, outbox, mo
     new_password = re.search(r"Temporary password: (\S+)", outbox[-1]["body"]).group(1)
     admin_client.post("/api/auth/logout")
     assert admin_client.post("/api/auth/login", json={"username": "newbie", "password": new_password}).status_code == 200
+
+
+# --- Who reviewed it: the display name, never the username ---
+
+REVIEWER = "keeper7"  # an admin username that can't appear in an email by accident
+
+
+def fail_to_send(to, subject, body):
+    raise mailer.MailError("SMTPConnectError")
+
+
+def reviewer_client(client, make_user, display_name=None):
+    make_user(REVIEWER, role="admin").display_name = display_name
+    return login(client, REVIEWER)
+
+
+def decide_three(admin_client, outbox) -> list[str]:
+    """Approve one chosen-password and one generated-password request, reject a third; return the bodies."""
+    bodies = []
+    for n, (action, changes) in enumerate([("approve", {}), ("approve", {"password": None, "wants_generated": True}),
+                                           ("reject", {})]):
+        submit_and_verify(admin_client, outbox, username=f"newbie{n}", email=f"n{n}@example.com", **changes)
+        admin_client.post(f"/api/admin/access-requests/{pending_id(admin_client)}/{action}", json={})
+        bodies.append(outbox[-1]["body"])
+    return bodies
+
+
+def test_decision_emails_show_the_reviewers_display_name(client, make_user, db, outbox):
+    admin_client = reviewer_client(client, make_user, "Priya Sharma")
+    db.commit()
+    bodies = decide_three(admin_client, outbox)
+    assert "Temporary password" in bodies[1] and "not approved" in bodies[2]
+    for body in bodies:
+        assert "Reviewed by Priya Sharma" in body
+        assert REVIEWER not in body
+
+
+def test_decision_emails_without_a_display_name_say_an_administrator(client, make_user, outbox):
+    admin_client = reviewer_client(client, make_user)
+    for body in decide_three(admin_client, outbox):
+        assert "Reviewed by an administrator" in body
+        assert REVIEWER not in body
+
+
+def test_resent_email_uses_the_reviewers_current_display_name(client, make_user, db, outbox, monkeypatch):
+    admin_client = reviewer_client(client, make_user, "Old Name")
+    db.commit()
+    submit_and_verify(admin_client, outbox)
+    request_id = pending_id(admin_client)
+    with monkeypatch.context() as patched:
+        patched.setattr(mailer, "send", fail_to_send)
+        admin_client.post(f"/api/admin/access-requests/{request_id}/reject", json={})
+
+    db.query(User).filter_by(username=REVIEWER).one().display_name = "New Name"
+    db.commit()
+    assert admin_client.post(f"/api/admin/access-requests/{request_id}/resend-email").status_code == 200
+    assert "Reviewed by New Name" in outbox[-1]["body"]
+    assert "Old Name" not in outbox[-1]["body"] and REVIEWER not in outbox[-1]["body"]
+
+
+def test_resend_never_goes_to_someone_who_reused_a_deleted_username(admin_client, db, outbox, monkeypatch):
+    submit_and_verify(admin_client, outbox, password=None, wants_generated=True)
+    request_id = pending_id(admin_client)
+    with monkeypatch.context() as patched:
+        patched.setattr(mailer, "send", fail_to_send)
+        admin_client.post(f"/api/admin/access-requests/{request_id}/approve")
+
+    newbie = db.query(User).filter_by(username="newbie").one()
+    assert admin_client.request("DELETE", f"/api/admin/users/{newbie.id}",
+                                json={"confirm_username": "newbie"}).status_code == 200
+    admin_client.post("/api/admin/users", json={"username": "newbie", "password": PASSWORD, "email": "other@x.com"})
+    sent_before = len(outbox)
+    assert admin_client.post(f"/api/admin/access-requests/{request_id}/resend-email").status_code == 409
+    assert len(outbox) == sent_before
 
 
 def test_resend_only_after_a_failure(admin_client, outbox):

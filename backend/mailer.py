@@ -82,7 +82,13 @@ If this wasn't you, ignore this email and nothing will happen.
 """)
 
 
-def approved(username: str) -> tuple[str, str]:
+def reviewed_by(display_name: str | None) -> str:
+    """The last line of a decision email. Only the admin's display name is ever used:
+    a username is half of a login, so it never goes in an email."""
+    return f"Reviewed by {display_name or 'an administrator'}"
+
+
+def approved(username: str, reviewer: str | None) -> tuple[str, str]:
     return "Your Sentinel Lite account is ready", _body(f"""
 Hello {username},
 
@@ -90,10 +96,12 @@ Your account request was approved. Log in with the username {username} and the
 password you chose:
 
 {settings.public_base_url}/
+
+{reviewed_by(reviewer)}
 """)
 
 
-def approved_generated(username: str, password: str) -> tuple[str, str]:
+def approved_generated(username: str, password: str, reviewer: str | None) -> tuple[str, str]:
     return "Your Sentinel Lite account is ready", _body(f"""
 Hello {username},
 
@@ -106,10 +114,12 @@ Temporary password: {password}
 
 You will be asked to choose your own password straight after logging in.
 Delete this email once you have done that.
+
+{reviewed_by(reviewer)}
 """)
 
 
-def rejected(username: str, reason: str) -> tuple[str, str]:
+def rejected(username: str, reason: str, reviewer: str | None) -> tuple[str, str]:
     because = f"\nThe admin's reason:\n\n{reason}\n" if reason else ""
     return "Your Sentinel Lite account request", _body(f"""
 Hello {username},
@@ -117,6 +127,8 @@ Hello {username},
 Sorry, your request for a Sentinel Lite account was not approved.
 {because}
 No account was created. You're welcome to send a new request later.
+
+{reviewed_by(reviewer)}
 """)
 
 
