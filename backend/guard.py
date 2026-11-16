@@ -4,6 +4,8 @@ import ipaddress
 import threading
 import time
 from collections import defaultdict, deque
+from contextvars import ContextVar
+from typing import NoReturn
 
 import dns.exception
 import dns.resolver
@@ -60,20 +62,34 @@ def server_ips() -> set[str]:
         return set()
 
 
-def check_target(db: Session, host: str) -> str:
-    """Return the IP address to scan for `host`, or raise 403 if it isn't allowed."""
+def check_target(db: Session, host: str, user: User | None = None, tool: str = "") -> str:
+    """Return the IP address to scan for `host`, or raise 403 if it isn't allowed.
+
+    With a user, refusals are logged as scan_refused and lookup failures as scan_failed.
+    """
+
+    def refuse(why: str, message: str) -> NoReturn:
+        if user:
+            log_activity(db, user, "scan_refused", f"{tool} {host}: {why}", "denied")
+        raise HTTPException(403, message)
+
     approved = db.scalar(select(AllowedTarget).where(AllowedTarget.host == host))
     if approved is None:
-        raise HTTPException(403, f"{host} is not an approved target. Ask an admin to add it.")
+        refuse("not approved", f"{host} is not an approved target. Ask an admin to add it.")
 
-    ips = resolve(host)
+    try:
+        ips = resolve(host)
+    except HTTPException:
+        if user:
+            log_activity(db, user, "scan_failed", f"{tool} {host}: DNS lookup failed", "fail")
+        raise
     # On the real server, never scan ourselves or the private network we sit in,
     # even if an admin approved the name by mistake (or its DNS changed since).
     if settings.is_prod:
         own_ips = server_ips()
         for ip in ips:
             if is_internal_ip(ip) or ip in own_ips:
-                raise HTTPException(403, f"{host} points to an internal address ({ip}), which is never scanned.")
+                refuse("internal address", f"{host} points to an internal address ({ip}), which is never scanned.")
     return ips[0]
 
 
@@ -128,32 +144,53 @@ scan_limiter = RateLimiter(SCANS_PER_MINUTE)
 login_limiter = RateLimiter(LOGINS_PER_MINUTE)
 
 
-def check_rate_limit(user: User) -> None:
+def check_rate_limit(db: Session, user: User) -> None:
     """Raise 429 if the user has started too many scans in the last minute."""
     if not scan_limiter.allow(user.id):
+        rate_limited(db, user.username, "scan")
         raise HTTPException(429, "Too many scans. Please wait a minute and try again.")
 
 
-def check_login_rate(ip: str) -> None:
-    """Raise 429 after too many login attempts from one IP address (slows password guessing)."""
+def check_login_rate(db: Session, ip: str, username: str) -> None:
+    """Raise 429 after too many login attempts from one IP address (slows password guessing).
+
+    Also used before checking a current password (password and email changes)."""
     if not login_limiter.allow(ip):
+        rate_limited(db, username, "login")
         raise HTTPException(429, "Too many login attempts. Please wait a minute and try again.")
 
 
 # --- Activity log ---
 
 
-def record(db: Session, username: str, action: str, detail: str = "") -> None:
-    """Save an event in the Activity table, then add it to the activity log file."""
-    entry = Activity(username=username[:32], action=action, detail=detail[:300])
+SYSTEM = "system"  # the username for events with no person behind them (startup, migrations)
+
+# The visitor's IP for the request being handled. A middleware in app.py sets it, so every
+# event records it without each route passing it along. Outside a request it stays "-".
+current_ip: ContextVar[str] = ContextVar("current_ip", default="-")
+
+
+def record(db: Session, username: str, action: str, detail: str = "", result: str = "ok") -> None:
+    """Save an event in the Activity table, then add it to the activity log file.
+
+    result: "ok", "fail" (e.g. a wrong password or a scan that couldn't finish) or
+    "denied" (refused by a rule: rate limit, unapproved target, admins only).
+    """
+    entry = Activity(username=username[:32], action=action, detail=detail[:300], ip=current_ip.get()[:45],
+                     result=result)
     db.add(entry)
     db.commit()
     activity_log.append(entry)
 
 
-def log_activity(db: Session, user: User, action: str, detail: str = "") -> None:
+def log_activity(db: Session, user: User, action: str, detail: str = "", result: str = "ok") -> None:
     """Record who did what in the Activity table (shown to admins)."""
-    record(db, user.username, action, detail)
+    record(db, user.username, action, detail, result)
+
+
+def rate_limited(db: Session, username: str, what: str) -> None:
+    """what: "scan", "login", "access_request" or "email_link"."""
+    record(db, username, "rate_limited", what, "denied")
 
 
 def mask_email(email: str) -> str:

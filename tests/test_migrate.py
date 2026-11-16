@@ -97,3 +97,41 @@ def test_migration_adds_display_name_to_a_database_that_already_has_email(tmp_pa
     engine.dispose()
     assert schema(path) == after_first
     assert ("display_name", "VARCHAR(50)") in after_first[0]["users"]
+
+
+def test_migration_adds_activity_ip_and_result_and_backfills_login_ips(tmp_path):
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(OLD_SCHEMA)
+    conn.executescript("""
+        INSERT INTO activity VALUES (2, 'bob', 'login_failed', 'from 203.0.113.9', '2026-10-01 10:01:00');
+        INSERT INTO activity VALUES (3, 'admin', 'target_added', 'from example.com', '2026-10-01 10:02:00');
+        INSERT INTO activity VALUES (4, 'eve', 'login_failed', 'from a b', '2026-10-01 10:03:00');
+    """)
+    conn.close()
+    engine = create_engine(f"sqlite:///{path}")
+
+    changes = migrate(engine)
+    assert "added activity.ip" in changes and "added activity.result" in changes
+    assert "backfilled activity.ip for 2 logins" in changes
+    assert "created table access_requests" in changes
+    assert migrate(engine) == []  # nothing left to do the second time
+    engine.dispose()
+
+    assert [name for name, _type in schema(path)[0]["activity"]][-2:] == ["ip", "result"]
+    conn = sqlite3.connect(path)
+    assert conn.execute("SELECT id, ip, result FROM activity ORDER BY id").fetchall() == [
+        (1, "127.0.0.1", "ok"),  # 'login' 'from 127.0.0.1' in OLD_SCHEMA
+        (2, "203.0.113.9", "ok"),
+        (3, "-", "ok"),  # not a login: left alone
+        (4, "-", "ok"),  # not a single address: left alone
+    ]
+    conn.close()
+
+
+def test_a_new_database_reports_its_tables_as_created(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'new.db'}")
+    changes = migrate(engine)
+    engine.dispose()
+    assert "created table users" in changes and "created table activity" in changes
+    assert not any(change.startswith("added ") for change in changes)

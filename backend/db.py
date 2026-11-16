@@ -15,10 +15,11 @@ class Base(DeclarativeBase):
     pass
 
 
-def init_db() -> None:
+def init_db() -> list[str]:
+    """Create or upgrade the database. Returns what changed (see migrate.py)."""
     from backend.migrate import migrate
 
-    migrate(engine)
+    return migrate(engine)
 
 
 def get_db():

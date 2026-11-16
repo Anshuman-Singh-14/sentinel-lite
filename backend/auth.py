@@ -97,9 +97,10 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
-def require_admin(user: User = Depends(current_user)) -> User:
-    """Dependency for admin-only routes."""
+def require_admin(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> User:
+    """Dependency for admin-only routes. A logged-in non-admin trying one is logged."""
     if user.role != "admin":
+        guard.log_activity(db, user, "admin_access_denied", f"{request.method} {request.url.path}", "denied")
         raise HTTPException(403, "Admins only")
     return user
 
@@ -116,15 +117,16 @@ class PasswordChange(BaseModel):
 
 @router.post("/login")
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    ip = client_ip(request)
-    guard.check_login_rate(ip)
+    guard.check_login_rate(db, client_ip(request), body.username)
     user = db.scalar(select(User).where(User.username == body.username))
     password_ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH.decode())
     if user is None or not password_ok or not user.is_active:
-        guard.record(db, body.username, "login_failed", f"from {ip}")
+        # The reason is only for admins reading the log; the visitor always gets the same answer.
+        reason = "unknown user" if user is None else "wrong password" if not password_ok else "account deactivated"
+        guard.record(db, body.username, "login_failed", reason, "fail")
         raise HTTPException(401, "Wrong username or password")
     start_session(request, user)
-    guard.log_activity(db, user, "login", f"from {ip}")
+    guard.log_activity(db, user, "login", "from web")  # the IP has its own column
     return user_to_dict(user)
 
 
@@ -147,8 +149,9 @@ def change_password(
     body: PasswordChange, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)
 ):
     # Shares the login limit, so this can't be used to guess the current password faster.
-    guard.check_login_rate(client_ip(request))
+    guard.check_login_rate(db, client_ip(request), user.username)
     if not verify_password(body.current_password, user.password_hash):
+        guard.log_activity(db, user, "password_change_failed", "wrong current password", "fail")
         raise HTTPException(400, "Your current password is wrong")
     if body.new_password == body.current_password:
         raise HTTPException(400, "The new password must be different from the current one")

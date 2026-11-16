@@ -108,8 +108,8 @@ def run_checks(host: str) -> tuple[dict, list[dict]]:
 
 @router.post("/web-check")
 def web_check(body: WebCheckRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    guard.check_rate_limit(user)
-    guard.check_target(db, body.target)
+    guard.check_rate_limit(db, user)
+    guard.check_target(db, body.target, user, "web_check")
     summary, findings = run_checks(body.target)
     guard.log_activity(db, user, "web_check", body.target)
     return save_scan(db, user, "web_check", body.target, summary, findings)

@@ -199,11 +199,12 @@ def request_config():
 TOO_MANY = "Too many account requests from your network. Please try again in an hour."
 
 
-def count_attempt(request: Request) -> str:
+def count_attempt(request: Request, db: Session = Depends(get_db)) -> str:
     """Counts every attempt, even ones with an invalid body: FastAPI runs dependencies
-    before it validates the body. Returns the client's IP."""
+    before it validates the body (so the username isn't known yet: "-"). Returns the client's IP."""
     ip = client_ip(request)
     if not attempt_limiter.allow(ip):
+        guard.rate_limited(db, "-", "access_request")
         raise HTTPException(429, TOO_MANY)
     return ip
 
@@ -218,6 +219,7 @@ def create_request(
     if not settings.access_requests_enabled:
         raise HTTPException(503, UNAVAILABLE)
     if request_limiter.is_full(ip):
+        guard.rate_limited(db, body.username, "access_request")
         raise HTTPException(429, TOO_MANY)
     if not verify_turnstile(body.turnstile_token, ip):
         raise HTTPException(400, "The human check failed. Please try it again.")
@@ -311,12 +313,14 @@ def change_email(
         raise HTTPException(503, "Email is not available right now")
     # The password is asked for so a stolen session alone can't move the account's email.
     # It shares the login limit, so this can't be used to guess passwords faster.
-    guard.check_login_rate(client_ip(request))
+    guard.check_login_rate(db, client_ip(request), user.username)
     if not verify_password(body.current_password, user.password_hash):
+        guard.log_activity(db, user, "email_change_failed", "wrong current password", "fail")
         raise HTTPException(400, "Your current password is wrong")
     if body.email == user.email:
         raise HTTPException(400, "That is already your email address")
     if not email_limiter.allow(user.id):
+        guard.rate_limited(db, user.username, "email_link")
         raise HTTPException(429, "Too many emails sent. Please try again in an hour.")
 
     # Only the newest link works: earlier unused ones are thrown away.

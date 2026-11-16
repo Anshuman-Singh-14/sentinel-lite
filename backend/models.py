@@ -106,7 +106,10 @@ class Scan(Base):
 
 
 class Activity(Base):
-    """Who did what, when. Shown to admins."""
+    """Who did what, when, and from where. Shown to admins.
+
+    username is "system" for events with no person behind them (startup, migrations).
+    """
 
     __tablename__ = "activity"
 
@@ -114,4 +117,6 @@ class Activity(Base):
     username: Mapped[str] = mapped_column(String(32))
     action: Mapped[str] = mapped_column(String(50))
     detail: Mapped[str] = mapped_column(String(300), default="")
+    ip: Mapped[str] = mapped_column(String(45), default="-")  # "-" outside a web request
+    result: Mapped[str] = mapped_column(String(10), default="ok")  # "ok", "fail" or "denied"
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
