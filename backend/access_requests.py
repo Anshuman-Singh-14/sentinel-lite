@@ -6,7 +6,7 @@ The flow:
 2. Opening the link and pressing "Confirm my email" makes the request "pending".
 3. An admin approves or rejects it (see admin.py) and the visitor gets an email.
 
-Logged-in users without an email address use the same kind of link to add one.
+Logged-in accounts use the same kind of link to add an email or change theirs.
 """
 
 import hashlib
@@ -20,7 +20,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from backend import guard, mailer
-from backend.auth import client_ip, current_user, hash_password
+from backend.auth import client_ip, current_user, hash_password, verify_password
 from backend.config import settings
 from backend.db import SessionLocal, get_db
 from backend.models import AccessRequest, EmailToken, User, as_utc, utcnow
@@ -88,8 +88,9 @@ class TokenBody(BaseModel):
     token: str = Field(min_length=20, max_length=200)
 
 
-class EmailBody(BaseModel):
+class EmailChange(BaseModel):
     email: Email
+    current_password: str = Field(max_length=200)
 
 
 # --- One-time email links ---
@@ -255,7 +256,7 @@ def create_request(
 
 
 @router.post("/api/email/verify")
-def verify_email(body: TokenBody, db: Session = Depends(get_db)):
+def verify_email(body: TokenBody, background: BackgroundTasks, db: Session = Depends(get_db)):
     """A POST (from the "Confirm my email" button), not a GET: email security scanners
     open every link in an email, and that must not confirm anything."""
     token = use_token(db, body.token)
@@ -276,31 +277,59 @@ def verify_email(body: TokenBody, db: Session = Depends(get_db)):
     if other is not None:
         db.rollback()
         raise HTTPException(409, "This email address is already used by another account.")
+    old_email = user.email
     user.email = token.email
     user.email_verified = True
     db.commit()
-    guard.log_activity(db, user, "email_verified", guard.mask_email(token.email))
-    return {"message": "Email confirmed and added to your account."}
+    new_masked = guard.mask_email(token.email)
+    if old_email is None:
+        guard.log_activity(db, user, "email_added", new_masked)
+        return {"message": "Email confirmed and added to your account."}
+    guard.log_activity(db, user, "email_changed", f"{guard.mask_email(old_email)} -> {new_masked}")
+    # Tell the old address, so a change the owner didn't make doesn't go unnoticed.
+    background.add_task(deliver, None, user.username, old_email, *mailer.email_changed(user.username, new_masked))
+    return {"message": "Email confirmed. Your account now uses this address."}
 
 
-# --- Adding an email to an existing account ---
+# --- Adding or changing the email of an account ---
+
+# The same answer whether or not the address is free, so this can't be used to find other accounts.
+EMAIL_LINK_SENT = "If that address can be used, we've sent a confirmation link to it."
 
 
 @router.post("/api/account/email")
-def add_email(
-    body: EmailBody, background: BackgroundTasks, user: User = Depends(current_user), db: Session = Depends(get_db)
+def change_email(
+    body: EmailChange,
+    request: Request,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ):
+    """Send a confirmation link to the new address. The account keeps its current email
+    until the link is opened (see verify_email above)."""
     if not settings.mail_enabled:
         raise HTTPException(503, "Email is not available right now")
+    # The password is asked for so a stolen session alone can't move the account's email.
+    # It shares the login limit, so this can't be used to guess passwords faster.
+    guard.check_login_rate(client_ip(request))
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(400, "Your current password is wrong")
+    if body.email == user.email:
+        raise HTTPException(400, "That is already your email address")
     if not email_limiter.allow(user.id):
         raise HTTPException(429, "Too many emails sent. Please try again in an hour.")
-    message = f"We sent a link to {body.email}. Open it and press \"Confirm my email\" to add the address."
+
+    # Only the newest link works: earlier unused ones are thrown away.
+    db.execute(delete(EmailToken).where(
+        EmailToken.purpose == "verify_user_email", EmailToken.ref_id == user.id, EmailToken.used_at.is_(None)
+    ))
     taken = db.scalar(select(User).where(User.email == body.email)) or db.scalar(
         select(AccessRequest).where(AccessRequest.email == body.email, AccessRequest.status.in_(OPEN_STATUSES))
     )
-    if taken:
-        return {"message": message}
-    token = new_token(db, "verify_user_email", user.id, body.email)
+    token = None if taken else new_token(db, "verify_user_email", user.id, body.email)
     db.commit()
-    background.add_task(deliver, None, user.username, body.email, *mailer.verify_user_email(user.username, link(token)))
-    return {"message": message}
+    guard.log_activity(db, user, "email_change_requested", guard.mask_email(body.email))
+    if token:
+        email = mailer.verify_user_email(user.username, link(token))
+        background.add_task(deliver, None, user.username, body.email, *email)
+    return {"message": EMAIL_LINK_SENT}

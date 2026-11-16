@@ -449,6 +449,45 @@ code {
   margin-right: 0.8rem;
 }
 
+/* Users / Admins: every row on one line; the .table-scroll box scrolls sideways on narrow screens. */
+table.users th,
+table.users td {
+  white-space: nowrap;
+}
+
+/* Wide enough for "admin" and "user" next to the arrow (inputs are full width by default). */
+select.role-select {
+  display: inline-block;
+  width: auto;
+  min-width: 6.5rem;
+  margin: 0;
+  padding: 0.25rem 0.4rem;
+}
+
+.user-actions {
+  display: inline-flex;
+  gap: 1rem;
+}
+
+.link-button.danger-link {
+  color: var(--high);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4rem;
+}
+
+.status-badge.active {
+  background: #e3f1e4;
+  color: var(--low);
+}
+
 /* The "type the username to delete" box, in the middle of the screen over a dimmed page. */
 .confirm-dialog {
   width: min(420px, calc(100vw - 2rem));
@@ -513,7 +552,8 @@ code {
 
 .account-links {
   display: flex;
-  gap: 0.8rem;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
   white-space: nowrap;
 }
 

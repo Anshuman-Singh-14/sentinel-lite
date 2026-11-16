@@ -7,7 +7,7 @@ from backend import mailer
 from backend.access_requests import CHECK_EMAIL, TERMS_VERSION
 from backend.config import settings
 from backend.mailer import send as real_send  # imported before conftest swaps mailer.send for the outbox
-from backend.models import AccessRequest, EmailToken, User, utcnow
+from backend.models import AccessRequest, Activity, EmailToken, User, utcnow
 
 CHOSEN = "chosen-pass-123"
 
@@ -398,28 +398,136 @@ def test_non_admins_cannot_reach_request_endpoints(client, user_client):
     assert client.get("/api/admin/access-requests").status_code == 401
 
 
-# --- Existing users adding an email ---
+# --- Adding or changing your own email ---
+
+LINK_SENT = "If that address can be used, we've sent a confirmation link to it."
 
 
-def test_existing_user_adds_an_email(user_client, outbox):
+def change_email(client, email, password=PASSWORD):
+    return client.post("/api/account/email", json={"email": email, "current_password": password})
+
+
+def give_alice_an_email(db, email="alice@old.com") -> User:
+    alice = db.query(User).filter_by(username="alice").one()
+    alice.email, alice.email_verified = email, True
+    db.commit()
+    return alice
+
+
+def test_existing_user_adds_a_first_email(user_client, outbox):
     assert user_client.get("/api/auth/me").json()["has_email"] is False
-    response = user_client.post("/api/account/email", json={"email": "Alice@Example.com"})
-    assert response.status_code == 200
-    assert outbox[-1]["to"] == "alice@example.com"
+    response = change_email(user_client, "Alice@Example.com")
+    assert response.status_code == 200 and response.json()["message"] == LINK_SENT
+    assert [email["to"] for email in outbox] == ["alice@example.com"]
     assert user_client.post("/api/email/verify", json={"token": token_in(outbox[-1])}).status_code == 200
     me = user_client.get("/api/auth/me").json()
     assert me["email"] == "alice@example.com" and me["has_email"] is True
+    assert len(outbox) == 1  # no previous address, so no "your email was changed" notice
 
 
-def test_adding_a_taken_email_looks_the_same_but_sends_nothing(user_client, make_user, db, outbox):
+def test_wrong_current_password_is_refused_and_nothing_is_sent(user_client, outbox):
+    response = change_email(user_client, "alice@example.com", password="not-my-password")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Your current password is wrong"
+    assert change_email(user_client, "alice@example.com", password="").status_code == 400
+    assert outbox == []
+
+
+def test_change_keeps_the_old_email_until_confirmed_then_notifies_it(user_client, db, outbox):
+    give_alice_an_email(db)
+    assert change_email(user_client, "alice@new.com").status_code == 200
+    assert [email["to"] for email in outbox] == ["alice@new.com"]  # the link goes to the new address only
+    assert user_client.get("/api/auth/me").json()["email"] == "alice@old.com"
+
+    confirmed = user_client.post("/api/email/verify", json={"token": token_in(outbox[0])})
+    assert confirmed.status_code == 200
+    db.expire_all()
+    alice = db.query(User).filter_by(username="alice").one()
+    assert (alice.email, alice.email_verified) == ("alice@new.com", True)
+
+    notice = outbox[-1]
+    assert notice["to"] == "alice@old.com"
+    assert "The email on your Sentinel Lite account alice was changed to a***@new.com." in notice["body"]
+    assert "contact an administrator" in notice["body"]
+    assert "alice@new.com" not in notice["body"]
+    assert "token" not in notice["body"] and "http" not in notice["body"]
+
+
+def test_same_address_is_refused(user_client, db, outbox):
+    give_alice_an_email(db)
+    assert change_email(user_client, "Alice@Old.com").status_code == 400
+    assert outbox == []
+
+
+def test_an_address_used_by_another_account_gets_the_same_answer_and_nothing_is_sent(
+    user_client, make_user, db, outbox
+):
     bob = make_user("bob")
     bob.email = "bob@example.com"
     db.commit()
-    taken = user_client.post("/api/account/email", json={"email": "bob@example.com"})
-    free = user_client.post("/api/account/email", json={"email": "free@example.com"})
-    assert taken.status_code == free.status_code == 200
-    assert taken.json()["message"].replace("bob@", "free@") == free.json()["message"]
-    assert [email["to"] for email in outbox] == ["free@example.com"]
+    taken = change_email(user_client, "bob@example.com")
+    assert taken.status_code == 200 and taken.json()["message"] == LINK_SENT
+    assert outbox == []
+    assert db.query(EmailToken).count() == 0
+
+
+def test_a_newer_request_invalidates_the_older_link(user_client, db, outbox):
+    give_alice_an_email(db)
+    change_email(user_client, "first@example.com")
+    change_email(user_client, "second@example.com")
+    first, second = token_in(outbox[0]), token_in(outbox[1])
+    assert user_client.post("/api/email/verify", json={"token": first}).status_code == 400
+    assert user_client.post("/api/email/verify", json={"token": second}).status_code == 200
+    assert user_client.get("/api/auth/me").json()["email"] == "second@example.com"
+
+
+def test_change_link_expires_and_works_once(user_client, db, outbox):
+    change_email(user_client, "alice@example.com")
+    token = token_in(outbox[0])
+    stored = db.query(EmailToken).one()
+    assert stored.token_hash != token  # only the hash is stored
+    stored.expires_at = utcnow() - timedelta(minutes=1)
+    db.commit()
+    assert "expired" in user_client.post("/api/email/verify", json={"token": token}).json()["detail"]
+
+    stored.expires_at = utcnow() + timedelta(hours=1)
+    db.commit()
+    assert user_client.post("/api/email/verify", json={"token": token}).status_code == 200
+    again = user_client.post("/api/email/verify", json={"token": token})
+    assert again.status_code == 400 and "already been used" in again.json()["detail"]
+
+
+def test_confirming_rechecks_that_the_address_is_still_free(user_client, make_user, db, outbox):
+    change_email(user_client, "alice@example.com")
+    bob = make_user("bob")
+    bob.email = "alice@example.com"  # taken in the meantime
+    db.commit()
+    assert user_client.post("/api/email/verify", json={"token": token_in(outbox[0])}).status_code == 409
+
+
+def test_link_requests_are_limited_to_three_an_hour(user_client, outbox):
+    for n in range(3):
+        assert change_email(user_client, f"a{n}@example.com").status_code == 200
+    assert change_email(user_client, "a3@example.com").status_code == 429
+    assert len(outbox) == 3
+
+
+def test_email_change_activity_is_masked(activity_log_file, user_client, db, outbox):
+    change_email(user_client, "alice@first.com")
+    user_client.post("/api/email/verify", json={"token": token_in(outbox[-1])})
+    change_email(user_client, "alice@second.com")
+    user_client.post("/api/email/verify", json={"token": token_in(outbox[-1])})
+
+    entries = [(a.action, a.detail) for a in db.query(Activity).filter_by(username="alice").order_by(Activity.id)]
+    assert [entry for entry in entries if entry[0] != "login"] == [
+        ("email_change_requested", "a***@first.com"),
+        ("email_added", "a***@first.com"),
+        ("email_change_requested", "a***@second.com"),
+        ("email_changed", "a***@first.com -> a***@second.com"),
+    ]
+    log = activity_log_file.read_text(encoding="utf-8")
+    assert "| email_changed |" in log
+    assert "alice@first.com" not in log and "alice@second.com" not in log
 
 
 # --- What reaches the activity log ---

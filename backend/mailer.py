@@ -136,10 +136,23 @@ def verify_user_email(username: str, link: str) -> tuple[str, str]:
     return "Confirm your new email for Sentinel Lite", _body(f"""
 Hello {username},
 
-To add this email address to your Sentinel Lite account, open this link and press
+To use this email address for your Sentinel Lite account, open this link and press
 "Confirm my email":
 
 {link}
 
 The link works once and expires in 24 hours. If you didn't ask for this, ignore this email.
 """)
+
+
+def email_changed(username: str, masked_new_email: str) -> tuple[str, str]:
+    """Sent to the OLD address after a change. No link at all, not even the site address in
+    the usual signature: a warning email with a link is what a phishing email looks like."""
+    return "The email on your Sentinel Lite account was changed", f"""Hello {username},
+
+The email on your Sentinel Lite account {username} was changed to {masked_new_email}.
+If this wasn't you, contact an administrator.
+
+--
+Sentinel Lite
+"""

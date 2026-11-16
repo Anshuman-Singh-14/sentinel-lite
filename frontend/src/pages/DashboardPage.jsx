@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api.js";
 import { NAV } from "../components/Layout.jsx";
-import { useRequest } from "../useRequest.js";
 
 export default function DashboardPage({ user }) {
   return (
@@ -39,8 +37,6 @@ function AddEmailBanner({ user }) {
       return false;
     }
   });
-  const [email, setEmail] = useState("");
-  const send = useRequest();
 
   if (hidden) return null;
 
@@ -53,30 +49,14 @@ function AddEmailBanner({ user }) {
     setHidden(true);
   }
 
-  function submit(event) {
-    event.preventDefault();
-    send.run(() => api("/api/account/email", { method: "POST", body: { email } }));
-  }
-
   return (
     <div className="notice banner">
       <p>
         <strong>Add an email address to your account</strong> so admins can reach you and you can get account emails.
       </p>
-      {send.data ? (
-        <p>{send.data.message}</p>
-      ) : (
-        <form className="row" onSubmit={submit}>
-          <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} required />
-          </label>
-          <button type="submit" disabled={send.busy}>
-            {send.busy ? "Sending…" : "Send confirmation link"}
-          </button>
-        </form>
-      )}
-      {send.error && <p className="error">{send.error}</p>}
+      <p>
+        <Link to="/account/email">Add your email address</Link>
+      </p>
       <button type="button" className="link-button small" onClick={hide}>
         Dismiss
       </button>

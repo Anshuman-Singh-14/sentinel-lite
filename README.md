@@ -99,8 +99,8 @@ All routes need a logged-in session except `/api/auth/login`, `/api/health`, `/a
 | `POST /api/auth/change-password` | `{current_password, new_password}` | user |
 | `GET /api/access-requests/config` | none | `{enabled, terms_version, terms_text, turnstile_site_key}` |
 | `POST /api/access-requests` | `{username, email, wants_generated, password?, remarks, agree, terms_version, turnstile_token}` | `{message}` (3 per hour per IP) |
-| `POST /api/email/verify` | `{token}` | `{message}` |
-| `POST /api/account/email` | `{email}` | `{message}` (emails a confirmation link) |
+| `POST /api/email/verify` | `{token}` | `{message}` (a changed email also notifies the old address) |
+| `POST /api/account/email` | `{email, current_password}` | `{message}` (emails a confirmation link to the new address; the email changes once it is opened) |
 | `POST /api/tools/dns-check` | `{domain}` | scan |
 | `POST /api/tools/port-scan` | `{target, ports: [int] or null}` (null = common ports) | scan |
 | `POST /api/tools/web-check` | `{target}` | scan |
@@ -110,7 +110,7 @@ All routes need a logged-in session except `/api/auth/login`, `/api/health`, `/a
 | `GET /api/scans/{id}/export.csv` | none | CSV file |
 | `GET /api/scans/{id}/report` | none | print-friendly HTML page |
 | `GET/POST /api/admin/users` | POST: `{username, password, role, email}` (email required for role `user`) | users / new user |
-| `PATCH /api/admin/users/{id}` | `{role?, is_active?, password?, email?, display_name?}` (display name: admins only, `""` clears it) | user |
+| `PATCH /api/admin/users/{id}` | `{role?, is_active?, password?, display_name?}` (no email: people change their own) (display name: admins only, `""` clears it) | user |
 | `DELETE /api/admin/users/{id}` | `{confirm_username}` (must match exactly) | `{ok: true}` (also deletes their scans) |
 | `GET /api/admin/access-requests?status=pending` | none (status: `pending`, `approved` or `rejected`) | account requests |
 | `POST /api/admin/access-requests/{id}/approve` | none | request (creates the user and emails them) |
