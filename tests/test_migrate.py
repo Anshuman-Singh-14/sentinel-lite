@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 
 from backend.migrate import migrate
 
-# The database as it was before email, must_change_password and display_name existed.
+# The database as it was before email, must_change_password, display_name and private targets existed.
 OLD_SCHEMA = """
 CREATE TABLE users (
     id INTEGER NOT NULL PRIMARY KEY,
@@ -24,6 +24,13 @@ CREATE TABLE scans (
     findings JSON NOT NULL,
     created_at DATETIME NOT NULL
 );
+CREATE TABLE allowed_targets (
+    id INTEGER NOT NULL PRIMARY KEY,
+    host VARCHAR(253) NOT NULL UNIQUE,
+    note VARCHAR(200) NOT NULL,
+    added_by VARCHAR(32) NOT NULL,
+    created_at DATETIME NOT NULL
+);
 CREATE TABLE activity (
     id INTEGER NOT NULL PRIMARY KEY,
     username VARCHAR(32) NOT NULL,
@@ -33,6 +40,7 @@ CREATE TABLE activity (
 );
 INSERT INTO users VALUES (1, 'admin', 'not-a-real-hash', 'admin', 1, '2026-10-01 10:00:00');
 INSERT INTO scans VALUES (1, 1, 'dns_check', 'example.com', '{}', '[]', '2026-10-01 10:05:00');
+INSERT INTO allowed_targets VALUES (1, 'example.com', 'lab', 'admin', '2026-10-01 10:01:00');
 INSERT INTO activity VALUES (1, 'admin', 'login', 'from 127.0.0.1', '2026-10-01 10:00:00');
 """
 
@@ -62,7 +70,8 @@ def test_migration_upgrades_an_old_database_and_keeps_its_rows(tmp_path):
     assert schema(path) == after_first
 
     tables, indexes = after_first
-    assert {"access_requests", "email_tokens"} <= tables.keys()
+    assert {"access_requests", "email_tokens", "target_access", "target_requests"} <= tables.keys()
+    assert tables["allowed_targets"][-1] == ("shared", "BOOLEAN")
     assert [name for name, _type in tables["users"]][-4:] == [
         "email", "email_verified", "must_change_password", "display_name"
     ]
@@ -73,6 +82,8 @@ def test_migration_upgrades_an_old_database_and_keeps_its_rows(tmp_path):
         "SELECT username, email, email_verified, must_change_password, display_name FROM users"
     ).fetchall() == [("admin", None, 0, 0, None)]
     assert conn.execute("SELECT target FROM scans").fetchall() == [("example.com",)]
+    # Targets from before private targets existed stay scannable by everyone.
+    assert conn.execute("SELECT host, shared FROM allowed_targets").fetchall() == [("example.com", 1)]
     assert conn.execute("SELECT action FROM activity").fetchall() == [("login",)]
     # Many users may have no email, but two can't share one.
     conn.execute("INSERT INTO users VALUES (2, 'bob', 'h', 'user', 1, '2026-10-02', NULL, 0, 0, NULL)")
@@ -115,6 +126,8 @@ def test_migration_adds_activity_ip_and_result_and_backfills_login_ips(tmp_path)
     assert "added activity.ip" in changes and "added activity.result" in changes
     assert "backfilled activity.ip for 2 logins" in changes
     assert "created table access_requests" in changes
+    assert "added allowed_targets.shared" in changes
+    assert "created table target_access" in changes and "created table target_requests" in changes
     assert migrate(engine) == []  # nothing left to do the second time
     engine.dispose()
 

@@ -21,7 +21,11 @@ ACTIVITY_COLUMNS = {
     "ip": "VARCHAR(45) NOT NULL DEFAULT '-'",
     "result": "VARCHAR(10) NOT NULL DEFAULT 'ok'",
 }
-COLUMNS = {"users": USER_COLUMNS, "activity": ACTIVITY_COLUMNS}
+# Targets that existed before private targets were added stay scannable by everyone.
+ALLOWED_TARGET_COLUMNS = {
+    "shared": "BOOLEAN NOT NULL DEFAULT 1",
+}
+COLUMNS = {"users": USER_COLUMNS, "activity": ACTIVITY_COLUMNS, "allowed_targets": ALLOWED_TARGET_COLUMNS}
 
 # Before the ip column existed, logins kept the IP in the detail as "from 203.0.113.9".
 BACKFILL_LOGIN_IPS = """
