@@ -1,4 +1,4 @@
-"""Admin routes: manage users, review account requests, approve scan targets, and view
+"""Admin routes: manage users, review account and website requests, approve scan targets, and view
 or download the activity log.
 
 The log exports take ?view=1 to open in a browser tab instead of downloading."""
@@ -14,13 +14,14 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from backend import mailer
+from backend import guard, mailer
 from backend.access_requests import deliver
 from backend.activity_log import format_line
 from backend.auth import generate_password, hash_password, require_admin, user_to_dict
 from backend.db import get_db
 from backend.guard import log_activity, mask_email
-from backend.models import AccessRequest, Activity, AllowedTarget, EmailToken, Scan, User, utcnow
+from backend.models import (AccessRequest, Activity, AllowedTarget, EmailToken, Scan, TargetAccess, TargetRequest,
+                            User, utcnow)
 from backend.reports import safe_cell
 from backend.validation import DisplayName, Email, Hostname, Password, Username
 
@@ -61,12 +62,26 @@ class NewTarget(BaseModel):
     note: str = Field(default="", max_length=200)
 
 
-def target_to_dict(target: AllowedTarget) -> dict:
+class TargetChange(BaseModel):
+    shared: bool
+
+
+def target_to_dict(db: Session, target: AllowedTarget) -> dict:
+    """Private targets also list who can scan them."""
+    access = []
+    if not target.shared:
+        rows = db.execute(
+            select(User.id, User.username).join(TargetAccess, TargetAccess.user_id == User.id)
+            .where(TargetAccess.target_id == target.id).order_by(User.username)
+        )
+        access = [{"user_id": user_id, "username": username} for user_id, username in rows]
     return {
         "id": target.id,
         "host": target.host,
         "note": target.note,
         "added_by": target.added_by,
+        "shared": target.shared,
+        "access": access,
         "created_at": target.created_at.isoformat(),
     }
 
@@ -160,8 +175,8 @@ def is_last_active_admin(db: Session, user: User) -> bool:
 def delete_user(
     user_id: int, body: UserDeletion, admin: User = Depends(require_admin), db: Session = Depends(get_db)
 ):
-    """Delete an account and its scan history. Account requests and activity entries stay:
-    they are history and keep the username as plain text."""
+    """Delete an account, its scan history, its website access and its website requests.
+    Account requests and activity entries stay: they are history and keep the username as plain text."""
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(404, "User not found")
@@ -174,6 +189,8 @@ def delete_user(
         raise HTTPException(400, "You can't delete the last active admin")
 
     scans = db.execute(delete(Scan).where(Scan.user_id == user.id)).rowcount
+    db.execute(delete(TargetAccess).where(TargetAccess.user_id == user.id))
+    db.execute(delete(TargetRequest).where(TargetRequest.user_id == user.id))
     db.execute(delete(EmailToken).where(EmailToken.purpose == "verify_user_email", EmailToken.ref_id == user.id))
     username, role = user.username, user.role
     db.delete(user)
@@ -182,9 +199,9 @@ def delete_user(
     return {"ok": True}
 
 
-def reviewer_name(db: Session, access_request: AccessRequest) -> str | None:
+def reviewer_name(db: Session, reviewed: AccessRequest | TargetRequest) -> str | None:
     """The reviewing admin's display name as it is now (None if unset or the admin is gone)."""
-    reviewer = db.scalar(select(User).where(User.username == access_request.reviewed_by))
+    reviewer = db.scalar(select(User).where(User.username == reviewed.reviewed_by))
     return reviewer.display_name if reviewer else None
 
 
@@ -213,17 +230,19 @@ def request_to_dict(access_request: AccessRequest) -> dict:
     }
 
 
-def claim(db: Session, request_id: int, admin: User, new_status: str, **values) -> AccessRequest:
-    """Move a pending request to approved/rejected, or raise 409 if it isn't pending any more.
+def claim(db: Session, model: type[AccessRequest | TargetRequest], request_id: int, admin: User, new_status: str,
+          **values) -> AccessRequest | TargetRequest:
+    """Move a pending request (an account or a website request) to approved/rejected, or
+    raise 409 if it isn't pending any more.
 
     The status check is part of the UPDATE itself, so when two admins click at the same
     moment exactly one of them gets the request (the other's UPDATE changes 0 rows).
     """
-    if db.get(AccessRequest, request_id) is None:
+    if db.get(model, request_id) is None:
         raise HTTPException(404, "Request not found")
     result = db.execute(
-        update(AccessRequest)
-        .where(AccessRequest.id == request_id, AccessRequest.status == "pending")
+        update(model)
+        .where(model.id == request_id, model.status == "pending")
         # email_status now tracks the decision email, not the earlier confirmation email.
         .values(status=new_status, reviewed_by=admin.username, reviewed_at=utcnow(), email_status="not_sent",
                 email_error="", **values)
@@ -231,7 +250,7 @@ def claim(db: Session, request_id: int, admin: User, new_status: str, **values) 
     if result.rowcount != 1:
         db.rollback()
         raise HTTPException(409, "This request isn't waiting for review (another admin may have just handled it)")
-    return db.get(AccessRequest, request_id, populate_existing=True)
+    return db.get(model, request_id, populate_existing=True)
 
 
 @router.get("/access-requests")
@@ -251,7 +270,7 @@ def list_access_requests(
 def approve_request(
     request_id: int, background: BackgroundTasks, admin: User = Depends(require_admin), db: Session = Depends(get_db)
 ):
-    access_request = claim(db, request_id, admin, "approved")
+    access_request = claim(db, AccessRequest, request_id, admin, "approved")
     if db.scalar(select(User).where(User.username == access_request.username)):
         db.rollback()
         raise HTTPException(409, f"The username {access_request.username} has been taken since the request was made")
@@ -291,7 +310,8 @@ def reject_request(
     db: Session = Depends(get_db),
 ):
     reason = body.reason.strip() if body else ""
-    access_request = claim(db, request_id, admin, "rejected", reject_reason=reason, password_hash=None)
+    access_request = claim(db, AccessRequest, request_id, admin, "rejected", reject_reason=reason,
+                           password_hash=None)
     db.commit()
     log_activity(db, admin, "access_request_rejected", access_request.username)
     email = mailer.rejected(access_request.username, reason, admin.display_name)
@@ -338,30 +358,209 @@ def resend_request_email(
     return request_to_dict(access_request)
 
 
+# --- Website requests (see target_requests.py for how they are made) ---
+
+
+def current_ips(host: str) -> list[str]:
+    """What the host resolves to now, so an admin can see if it changed since the request."""
+    try:
+        return guard.resolve(host)
+    except HTTPException:
+        return []
+
+
+def target_request_to_dict(db: Session, target_request: TargetRequest, with_current_ips: bool = False) -> dict:
+    requester = db.get(User, target_request.user_id)
+    resolved = [ip for ip in target_request.resolved_ips.split(",") if ip]
+    row = {
+        "id": target_request.id,
+        "username": requester.username if requester else "(deleted)",
+        "host": target_request.host,
+        "reason": target_request.reason,
+        "status": target_request.status,
+        "resolved_ips": resolved,
+        "created_at": target_request.created_at.isoformat(),
+        "reviewed_by": target_request.reviewed_by,
+        "reviewed_at": target_request.reviewed_at.isoformat() if target_request.reviewed_at else None,
+        "reject_reason": target_request.reject_reason,
+        "email_status": target_request.email_status,
+        "email_error": target_request.email_error,
+    }
+    if with_current_ips:
+        now = current_ips(target_request.host)
+        row["current_ips"] = now
+        row["ips_changed"] = sorted(now) != sorted(resolved)
+    return row
+
+
+def requester_of(db: Session, target_request: TargetRequest) -> User:
+    user = db.get(User, target_request.user_id)
+    if user is None:
+        raise HTTPException(409, "The user who asked no longer exists")
+    return user
+
+
+def email_requester(db: Session, background: BackgroundTasks, target_request: TargetRequest, user: User,
+                    email: tuple[str, str]) -> None:
+    """Send the decision email, or mark it "no_email" when the user has no address to send to."""
+    if not user.email:
+        target_request.email_status = "no_email"
+        db.commit()
+        return
+    background.add_task(deliver, target_request.id, user.username, user.email, *email, model=TargetRequest)
+
+
+@router.get("/target-requests")
+def list_target_requests(
+    status: Literal["pending", "approved", "rejected", "cancelled"] = "pending",
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    rows = list(db.scalars(
+        select(TargetRequest).where(TargetRequest.status == status).order_by(TargetRequest.id.desc()).limit(200)
+    ))
+    # Looking every host up again is only worth it while a decision is still to be made.
+    return [target_request_to_dict(db, row, with_current_ips=status == "pending") for row in rows]
+
+
+@router.post("/target-requests/{request_id}/approve")
+def approve_target_request(
+    request_id: int, background: BackgroundTasks, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    target_request = claim(db, TargetRequest, request_id, admin, "approved")
+    user = db.get(User, target_request.user_id)
+    if user is None:
+        db.rollback()
+        raise HTTPException(409, "The user who asked no longer exists")
+
+    target = db.scalar(select(AllowedTarget).where(AllowedTarget.host == target_request.host))
+    if target is None:
+        # A new target approved for one person is private to them.
+        target = AllowedTarget(host=target_request.host, note=f"requested by {user.username}",
+                               added_by=admin.username, shared=False)
+        db.add(target)
+        db.flush()  # gives the target its id for the access row
+    # An existing target keeps its shared setting; the access row counts if it is (or becomes) private.
+    has_access = db.scalar(
+        select(TargetAccess).where(TargetAccess.target_id == target.id, TargetAccess.user_id == user.id)
+    )
+    if has_access is None:
+        db.add(TargetAccess(target_id=target.id, user_id=user.id, granted_by=admin.username))
+    db.commit()
+    log_activity(db, admin, "target_request_approved", f"{target.host} for {user.username}")
+    email_requester(db, background, target_request, user,
+                    mailer.target_approved(user.username, target.host, admin.display_name))
+    return target_request_to_dict(db, target_request)
+
+
+@router.post("/target-requests/{request_id}/reject")
+def reject_target_request(
+    request_id: int,
+    background: BackgroundTasks,
+    body: Rejection | None = None,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    reason = body.reason.strip() if body else ""
+    target_request = claim(db, TargetRequest, request_id, admin, "rejected", reject_reason=reason)
+    db.commit()
+    user = db.get(User, target_request.user_id)
+    log_activity(db, admin, "target_request_rejected",
+                 f"{target_request.host} for {user.username if user else '(deleted)'}")
+    if user is not None:
+        email_requester(db, background, target_request, user,
+                        mailer.target_rejected(user.username, target_request.host, reason, admin.display_name))
+    return target_request_to_dict(db, target_request)
+
+
+@router.post("/target-requests/{request_id}/resend-email")
+def resend_target_request_email(
+    request_id: int, background: BackgroundTasks, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    """Try the decision email again after it failed."""
+    target_request = db.get(TargetRequest, request_id)
+    if target_request is None:
+        raise HTTPException(404, "Request not found")
+    if target_request.email_status != "failed":
+        raise HTTPException(409, "Only failed emails can be resent")
+    user = requester_of(db, target_request)
+    reviewer = reviewer_name(db, target_request)
+    if target_request.status == "approved":
+        email = mailer.target_approved(user.username, target_request.host, reviewer)
+    elif target_request.status == "rejected":
+        email = mailer.target_rejected(user.username, target_request.host, target_request.reject_reason, reviewer)
+    else:
+        raise HTTPException(409, "There is no email to resend for this request")
+
+    target_request.email_status = "not_sent"
+    target_request.email_error = ""
+    db.commit()
+    log_activity(db, admin, "target_request_email_resent", f"{target_request.host} for {user.username}")
+    email_requester(db, background, target_request, user, email)
+    return target_request_to_dict(db, target_request)
+
+
 # --- Allowed targets ---
+
+
+def get_target(db: Session, target_id: int) -> AllowedTarget:
+    target = db.get(AllowedTarget, target_id)
+    if target is None:
+        raise HTTPException(404, "Target not found")
+    return target
 
 
 @router.get("/targets")
 def list_targets(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    return [target_to_dict(t) for t in db.scalars(select(AllowedTarget).order_by(AllowedTarget.host))]
+    return [target_to_dict(db, t) for t in db.scalars(select(AllowedTarget).order_by(AllowedTarget.host))]
 
 
 @router.post("/targets")
 def add_target(body: NewTarget, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     if db.scalar(select(AllowedTarget).where(AllowedTarget.host == body.host)):
         raise HTTPException(409, f"{body.host} is already approved")
-    target = AllowedTarget(host=body.host, note=body.note, added_by=admin.username)
+    # Targets an admin adds here can be scanned by everyone.
+    target = AllowedTarget(host=body.host, note=body.note, added_by=admin.username, shared=True)
     db.add(target)
     db.commit()
     log_activity(db, admin, "target_added", target.host)
-    return target_to_dict(target)
+    return target_to_dict(db, target)
+
+
+@router.patch("/targets/{target_id}")
+def change_target(
+    target_id: int, body: TargetChange, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    """Shared: everyone can scan it. Private: only the users with access (and admins)."""
+    target = get_target(db, target_id)
+    if target.shared != body.shared:
+        target.shared = body.shared
+        db.commit()
+        log_activity(db, admin, "target_sharing_changed", f"{target.host}: {'shared' if body.shared else 'private'}")
+    return target_to_dict(db, target)
+
+
+@router.delete("/targets/{target_id}/access/{user_id}")
+def remove_target_access(
+    target_id: int, user_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    target = get_target(db, target_id)
+    access = db.scalar(
+        select(TargetAccess).where(TargetAccess.target_id == target.id, TargetAccess.user_id == user_id)
+    )
+    if access is None:
+        raise HTTPException(404, "That user has no access to this target")
+    user = db.get(User, user_id)
+    db.delete(access)
+    db.commit()
+    log_activity(db, admin, "target_access_removed", f"{target.host} for {user.username if user else user_id}")
+    return target_to_dict(db, target)
 
 
 @router.delete("/targets/{target_id}")
 def delete_target(target_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    target = db.get(AllowedTarget, target_id)
-    if target is None:
-        raise HTTPException(404, "Target not found")
+    target = get_target(db, target_id)
+    db.execute(delete(TargetAccess).where(TargetAccess.target_id == target.id))
     db.delete(target)
     db.commit()
     log_activity(db, admin, "target_removed", target.host)

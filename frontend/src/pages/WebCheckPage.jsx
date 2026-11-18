@@ -17,6 +17,7 @@ export default function WebCheckPage() {
       title="Website check"
       intro="Checks that a website uses HTTPS, when its certificate expires, and whether it sends 6 key security headers. Only targets approved by an admin can be checked."
       request={scan}
+      target={target}
     >
       <form className="card tool-form" onSubmit={submit}>
         <label>

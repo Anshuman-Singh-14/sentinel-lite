@@ -72,7 +72,7 @@ Browser (React)  ──fetch /api/...──▶  FastAPI (backend/app.py)
 
 1. The user logs in. The password is checked against a bcrypt hash and the user id goes into a signed, httpOnly session cookie.
 2. A tool page sends a request such as `POST /api/tools/port-scan`. Pydantic validates the input first.
-3. Active tools call `guard.check_target()`: the target must be on the admin's approved list, and in production localhost, private IPs and the server itself are always refused.
+3. Active tools call `guard.check_target()`: the target must be on the admin's approved list and either shared, or private with access given to this user (admins can scan every target), and in production localhost, private IPs and the server itself are always refused.
 4. The tool does its network work with strict timeouts and returns finding **keys** (e.g. `port.database_exposed`).
 5. `results.py` turns each key into a full explained finding from `knowledge.json` and saves the scan to the user's history.
 
@@ -101,6 +101,10 @@ All routes need a logged-in session except `/api/auth/login`, `/api/health`, `/a
 | `POST /api/access-requests` | `{username, email, wants_generated, password?, remarks, agree, terms_version, turnstile_token}` | `{message}` (3 per hour per IP) |
 | `POST /api/email/verify` | `{token}` | `{message}` (a changed email also notifies the old address) |
 | `POST /api/account/email` | `{email, current_password}` | `{message}` (emails a confirmation link to the new address; the email changes once it is opened) |
+| `POST /api/target-requests` | `{host, reason, confirm: true}` | request (5 per hour per user; the host must resolve) |
+| `GET /api/target-requests` | none | your website requests, newest first |
+| `POST /api/target-requests/{id}/cancel` | none | request (only your own, only while pending) |
+| `GET /api/targets/mine` | none | the targets you can scan, each `shared` or `private` |
 | `POST /api/tools/dns-check` | `{domain}` | scan |
 | `POST /api/tools/port-scan` | `{target, ports: [int] or null}` (null = common ports) | scan |
 | `POST /api/tools/web-check` | `{target}` | scan |
@@ -111,12 +115,18 @@ All routes need a logged-in session except `/api/auth/login`, `/api/health`, `/a
 | `GET /api/scans/{id}/report` | none | print-friendly HTML page |
 | `GET/POST /api/admin/users` | POST: `{username, password, role, email}` (email required for role `user`) | users / new user |
 | `PATCH /api/admin/users/{id}` | `{role?, is_active?, password?, display_name?}` (no email: people change their own) (display name: admins only, `""` clears it) | user |
-| `DELETE /api/admin/users/{id}` | `{confirm_username}` (must match exactly) | `{ok: true}` (also deletes their scans) |
+| `DELETE /api/admin/users/{id}` | `{confirm_username}` (must match exactly) | `{ok: true}` (also deletes their scans, website access and website requests) |
 | `GET /api/admin/access-requests?status=pending` | none (status: `pending`, `approved` or `rejected`) | account requests |
 | `POST /api/admin/access-requests/{id}/approve` | none | request (creates the user and emails them) |
 | `POST /api/admin/access-requests/{id}/reject` | `{reason?}` | request (emails them) |
 | `POST /api/admin/access-requests/{id}/resend-email` | none | request (only after a failed email) |
-| `GET/POST /api/admin/targets` | POST: `{host, note}` | targets / new target |
+| `GET /api/admin/target-requests?status=pending` | none (status: `pending`, `approved`, `rejected` or `cancelled`) | website requests, with the requested and current IPs |
+| `POST /api/admin/target-requests/{id}/approve` | none | request (adds the target as private if new, gives the user access, emails them) |
+| `POST /api/admin/target-requests/{id}/reject` | `{reason?}` | request (emails them) |
+| `POST /api/admin/target-requests/{id}/resend-email` | none | request (only after a failed email) |
+| `GET/POST /api/admin/targets` | POST: `{host, note}` (added as shared) | targets / new target |
+| `PATCH /api/admin/targets/{id}` | `{shared}` | target |
+| `DELETE /api/admin/targets/{id}/access/{user_id}` | none | target (that user can no longer scan it) |
 | `DELETE /api/admin/targets/{id}` | none | `{ok: true}` |
 | `GET /api/admin/activity` | none | latest activity entries |
 
@@ -128,7 +138,7 @@ Errors come back as `{"detail": "message"}` with a matching HTTP status (400, 40
 - **Passwords** are hashed with bcrypt. There is no public sign-up; admins create accounts.
 - **Sessions** use a signed cookie that JavaScript can't read (httpOnly), is only sent over HTTPS in production (Secure), and is not sent on cross-site form posts (SameSite=Lax). That last part is what protects against CSRF.
 - **Input validation** with Pydantic on every request: hostnames, ports, usernames, passwords.
-- **Active scans need approval.** The port scan and website check only run against targets an admin has approved. In production localhost, private networks and the server's own IP are always blocked.
+- **Active scans need approval.** The port scan and website check only run against targets an admin has approved. Users can request a website on the My websites page, confirming they own it or have written permission; an approved request makes the target private to them, so it never becomes scannable by everyone. In production localhost, private networks and the server's own IP are always blocked.
 - **Limits everywhere:** 2-second socket timeouts, at most 100 ports, 50 connections at a time, 10 scans per minute per user, 5 MB uploads.
 - **Uploaded logs** are processed in memory and never written to disk.
 - **Browser-only tools** never send your input to the server.

@@ -132,6 +132,35 @@ No account was created. You're welcome to send a new request later.
 """)
 
 
+def target_approved(username: str, host: str, reviewer: str | None) -> tuple[str, str]:
+    return f"You can now scan {host}", _body(f"""
+Hello {username},
+
+Your request to scan {host} was approved. You can now run the port scan and
+website check against it:
+
+{settings.public_base_url}/my-websites
+
+Only scan it as you described in your request, and only while you have the owner's
+permission.
+
+{reviewed_by(reviewer)}
+""")
+
+
+def target_rejected(username: str, host: str, reason: str, reviewer: str | None) -> tuple[str, str]:
+    because = f"\nThe admin's reason:\n\n{reason}\n" if reason else ""
+    return f"Your request to scan {host}", _body(f"""
+Hello {username},
+
+Sorry, your request to scan {host} was not approved.
+{because}
+You're welcome to send a new request with more details on the My websites page.
+
+{reviewed_by(reviewer)}
+""")
+
+
 def verify_user_email(username: str, link: str) -> tuple[str, str]:
     return "Confirm your new email for Sentinel Lite", _body(f"""
 Hello {username},

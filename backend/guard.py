@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from backend import activity_log
 from backend.config import settings
-from backend.models import Activity, AllowedTarget, User
+from backend.models import Activity, AllowedTarget, TargetAccess, User
 
 DNS_TIMEOUT = 3  # seconds
 SCANS_PER_MINUTE = 10
@@ -62,34 +62,53 @@ def server_ips() -> set[str]:
         return set()
 
 
-def check_target(db: Session, host: str, user: User | None = None, tool: str = "") -> str:
-    """Return the IP address to scan for `host`, or raise 403 if it isn't allowed.
+def internal_address(ips: list[str]) -> str | None:
+    """On the real server, the first of `ips` that must never be scanned (internal or our own), else None.
 
-    With a user, refusals are logged as scan_refused and lookup failures as scan_failed.
+    In development everything is allowed, so scanning a test server on localhost works.
+    """
+    if not settings.is_prod:
+        return None
+    own_ips = server_ips()
+    for ip in ips:
+        if is_internal_ip(ip) or ip in own_ips:
+            return ip
+    return None
+
+
+def can_scan(db: Session, target: AllowedTarget, user: User) -> bool:
+    """Admins can scan every target; others a shared one, or a private one they were given access to."""
+    if user.role == "admin" or target.shared:
+        return True
+    access = select(TargetAccess).where(TargetAccess.target_id == target.id, TargetAccess.user_id == user.id)
+    return db.scalar(access) is not None
+
+
+def check_target(db: Session, host: str, user: User, tool: str = "") -> str:
+    """Return the IP address to scan for `host`, or raise 403 if this user may not scan it.
+
+    Refusals are logged as scan_refused and lookup failures as scan_failed.
     """
 
     def refuse(why: str, message: str) -> NoReturn:
-        if user:
-            log_activity(db, user, "scan_refused", f"{tool} {host}: {why}", "denied")
+        log_activity(db, user, "scan_refused", f"{tool} {host}: {why}", "denied")
         raise HTTPException(403, message)
 
     approved = db.scalar(select(AllowedTarget).where(AllowedTarget.host == host))
-    if approved is None:
-        refuse("not approved", f"{host} is not an approved target. Ask an admin to add it.")
+    if approved is None or not can_scan(db, approved, user):
+        refuse("not approved",
+               f"{host} is not an approved target. Request access on the My websites page, or ask an admin.")
 
     try:
         ips = resolve(host)
     except HTTPException:
-        if user:
-            log_activity(db, user, "scan_failed", f"{tool} {host}: DNS lookup failed", "fail")
+        log_activity(db, user, "scan_failed", f"{tool} {host}: DNS lookup failed", "fail")
         raise
     # On the real server, never scan ourselves or the private network we sit in,
     # even if an admin approved the name by mistake (or its DNS changed since).
-    if settings.is_prod:
-        own_ips = server_ips()
-        for ip in ips:
-            if is_internal_ip(ip) or ip in own_ips:
-                refuse("internal address", f"{host} points to an internal address ({ip}), which is never scanned.")
+    bad_ip = internal_address(ips)
+    if bad_ip:
+        refuse("internal address", f"{host} points to an internal address ({bad_ip}), which is never scanned.")
     return ips[0]
 
 
@@ -189,7 +208,7 @@ def log_activity(db: Session, user: User, action: str, detail: str = "", result:
 
 
 def rate_limited(db: Session, username: str, what: str) -> None:
-    """what: "scan", "login", "access_request" or "email_link"."""
+    """what: "scan", "login", "access_request", "email_link" or "target_request"."""
     record(db, username, "rate_limited", what, "denied")
 
 

@@ -11,12 +11,13 @@ def approve(db, host):
     db.commit()
 
 
-def test_only_approved_targets_are_allowed(db):
+def test_only_approved_targets_are_allowed(db, make_user):
+    alice = make_user("alice")
     with pytest.raises(HTTPException) as error:
-        guard.check_target(db, "8.8.8.8")
+        guard.check_target(db, "8.8.8.8", alice)
     assert error.value.status_code == 403
     approve(db, "8.8.8.8")
-    assert guard.check_target(db, "8.8.8.8") == "8.8.8.8"
+    assert guard.check_target(db, "8.8.8.8", alice) == "8.8.8.8"
 
 
 def test_internal_ips_are_recognised():
@@ -25,20 +26,21 @@ def test_internal_ips_are_recognised():
     assert not guard.is_internal_ip("8.8.8.8")
 
 
-def test_production_blocks_private_ips_even_when_approved(db, monkeypatch):
+def test_production_blocks_private_ips_even_when_approved(db, make_user, monkeypatch):
     monkeypatch.setattr(settings, "app_env", "prod")
+    monkeypatch.setattr(guard, "server_ips", lambda: set())
     approve(db, "192.168.1.10")
     with pytest.raises(HTTPException) as error:
-        guard.check_target(db, "192.168.1.10")
+        guard.check_target(db, "192.168.1.10", make_user("alice"))
     assert error.value.status_code == 403
 
 
-def test_production_blocks_the_servers_own_ip(db, monkeypatch):
+def test_production_blocks_the_servers_own_ip_even_for_admins(db, make_user, monkeypatch):
     monkeypatch.setattr(settings, "app_env", "prod")
     monkeypatch.setattr(guard, "server_ips", lambda: {"203.0.113.7"})
     approve(db, "203.0.113.7")
     with pytest.raises(HTTPException):
-        guard.check_target(db, "203.0.113.7")
+        guard.check_target(db, "203.0.113.7", make_user("root", role="admin"))
 
 
 def test_rate_limiter_blocks_then_recovers(monkeypatch):

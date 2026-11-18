@@ -665,3 +665,75 @@ table.requests {
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
+
+/* A short success message under a form. */
+.success {
+  color: var(--low);
+}
+
+/* The error box on the port scan and website check pages (one or two short lines). */
+.tool-error {
+  margin: 0;
+}
+
+.tool-error + .tool-error {
+  margin-top: 0.4rem;
+}
+
+/* --- Website requests and private targets --- */
+
+.status-badge.shared,
+.status-badge.request-approved {
+  background: #e3f1e4;
+  color: var(--low);
+}
+
+.status-badge.private {
+  background: #e6ecfa;
+  color: var(--accent);
+}
+
+.status-badge.request-pending {
+  background: #fdf0e2;
+  color: var(--medium);
+}
+
+.status-badge.request-rejected {
+  background: #fde8e6;
+  color: var(--high);
+}
+
+/* The website's IPs changed between the request and now: worth a second look before approving. */
+.ip-changed {
+  color: var(--high);
+  background: #fde8e6;
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
+
+.access-list {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+}
+
+/* --- Activity log table --- */
+
+/* Fits a desktop screen without scrolling sideways: When, Action and IP stay on one line
+   and take only the room they need, and Details takes the rest and wraps. */
+table.activity td.log-ip {
+  width: 1%;
+  max-width: 16ch;
+  white-space: nowrap;
+}
+
+table.activity td.log-user {
+  max-width: 14ch;
+  overflow-wrap: anywhere;
+}
+
+table.activity td.log-detail {
+  width: 100%;
+  min-width: 16ch;
+  overflow-wrap: anywhere;
+}

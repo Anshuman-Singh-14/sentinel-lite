@@ -39,6 +39,7 @@ export default function PortScanPage() {
       title="Port scan"
       intro="Checks which TCP ports accept connections. Only targets approved by an admin can be scanned."
       request={scan}
+      target={target}
     >
       <form className="card tool-form" onSubmit={submit}>
         <label>

@@ -15,7 +15,7 @@ os.environ["ALLOWED_ORIGINS"] = "https://app.example.com"  # turns on CORS (see 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from backend import access_requests, guard, mailer  # noqa: E402
+from backend import access_requests, guard, mailer, target_requests  # noqa: E402
 from backend.app import app  # noqa: E402
 from backend.auth import hash_password  # noqa: E402
 from backend.db import Base, SessionLocal, engine  # noqa: E402
@@ -41,6 +41,7 @@ def reset_rate_limits():
     access_requests.request_limiter.reset()
     access_requests.attempt_limiter.reset()
     access_requests.email_limiter.reset()
+    target_requests.request_limiter.reset()
 
 
 @pytest.fixture(autouse=True)
