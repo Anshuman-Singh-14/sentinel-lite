@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
+import AccessBadge from "../components/AccessBadge.jsx";
 import ActivityLog from "../components/ActivityLog.jsx";
 import { formatDate, formatShortDate } from "../format.js";
 import { useList } from "../useList.js";
@@ -9,6 +10,7 @@ export default function AdminPage({ user }) {
     <section>
       <h1>Admin</h1>
       <AccessRequests />
+      <TargetRequests />
       <Targets />
       <Users currentUser={user} />
       <Activity />
@@ -38,7 +40,7 @@ function Tabs({ tabs, value, onChange }) {
   );
 }
 
-const EMAIL_STATUS = { not_sent: "sending…", sent: "sent", failed: "failed" };
+const EMAIL_STATUS = { not_sent: "sending…", sent: "sent", failed: "failed", no_email: "no email address" };
 
 function AccessRequests() {
   const pending = useList("/api/admin/access-requests?status=pending");
@@ -157,6 +159,150 @@ function AccessRequests() {
   );
 }
 
+// Users asking to scan a website. Approving lets only that user scan it (a new target is
+// added as private); rejecting emails them the reason.
+function TargetRequests() {
+  const pending = useList("/api/admin/target-requests?status=pending");
+  const [status, setStatus] = useState("pending");
+  const shown = useList(`/api/admin/target-requests?status=${status}`);
+  const columns = status === "pending" ? 7 : 8;
+
+  async function act(request, action, body) {
+    try {
+      await api(`/api/admin/target-requests/${request.id}/${action}`, { method: "POST", body });
+      shown.setError("");
+    } catch (err) {
+      shown.setError(err.message);
+    }
+    shown.reload();
+    pending.reload();
+  }
+
+  function approve(request) {
+    if (window.confirm(`Let ${request.username} scan ${request.host}?`)) act(request, "approve");
+  }
+
+  function reject(request) {
+    const reason = window.prompt(
+      `Reject the request from ${request.username} for ${request.host}? Optional reason (it is emailed to them):`,
+      "",
+    );
+    if (reason !== null) act(request, "reject", { reason: reason.slice(0, 300) });
+  }
+
+  return (
+    <div className="admin-section">
+      <h2>
+        Website requests{" "}
+        {pending.items.length > 0 && <span className="count-badge alert">{pending.items.length}</span>}
+      </h2>
+      <p className="muted small">
+        Users asking to scan a website. Approving lets only that user scan it (a new target is added as private).
+        Check that the current IPs still match the ones from the request.
+      </p>
+      <Tabs
+        value={status}
+        onChange={setStatus}
+        tabs={[
+          { value: "pending", label: "Pending", count: pending.items.length, alert: true },
+          { value: "approved", label: "Approved" },
+          { value: "rejected", label: "Rejected" },
+        ]}
+      />
+      {shown.error && <p className="error">{shown.error}</p>}
+      {pending.error && <p className="error">{pending.error}</p>}
+      <div className="table-scroll">
+        <table className="data requests">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Website</th>
+              <th>Reason</th>
+              <th>Submitted</th>
+              <th>IPs</th>
+              {status !== "pending" && <th>Decision</th>}
+              <th>Email status</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {shown.items.length === 0 && (
+              <tr>
+                <td colSpan={columns} className="muted">
+                  No {status} requests.
+                </td>
+              </tr>
+            )}
+            {shown.items.map((request) => (
+              <tr key={request.id}>
+                <td>{request.username}</td>
+                <td className="nowrap">
+                  <code>{request.host}</code>
+                </td>
+                <td className="remarks">{request.reason || <span className="muted">none</span>}</td>
+                <td className="nowrap" title={formatDate(request.created_at)}>
+                  {formatShortDate(request.created_at)}
+                </td>
+                <td className="nowrap">
+                  <RequestIps request={request} />
+                </td>
+                {status !== "pending" && (
+                  <td>
+                    <span className="nowrap">by {request.reviewed_by}</span>
+                    {request.reject_reason && <div className="muted small">Reason: {request.reject_reason}</div>}
+                  </td>
+                )}
+                <td className="nowrap">
+                  {request.status === "pending" ? <span className="muted">-</span> : EMAIL_STATUS[request.email_status]}
+                  {request.email_error && <div className="error small">{request.email_error}</div>}
+                </td>
+                <td className="actions nowrap">
+                  {request.status === "pending" && (
+                    <>
+                      <button type="button" onClick={() => approve(request)}>
+                        Approve
+                      </button>
+                      <button type="button" className="danger" onClick={() => reject(request)}>
+                        Reject
+                      </button>
+                    </>
+                  )}
+                  {request.email_status === "failed" && (
+                    <button type="button" className="link-button" onClick={() => act(request, "resend-email")}>
+                      Resend
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// The IPs the website had when it was requested and, while pending, the ones it has now.
+// A difference is highlighted: the name may now point at someone else's server.
+function RequestIps({ request }) {
+  const requested = request.resolved_ips.join(", ") || "none";
+  if (!request.current_ips) return <code>{requested}</code>;
+  const current = request.current_ips.join(", ") || "does not resolve";
+  return (
+    <div className={request.ips_changed ? "ip-changed" : undefined}>
+      <div>
+        <span className="muted small">requested </span>
+        <code>{requested}</code>
+      </div>
+      <div>
+        <span className="muted small">now </span>
+        <code>{current}</code>
+        {request.ips_changed && <strong className="small"> changed</strong>}
+      </div>
+    </div>
+  );
+}
+
 function Targets() {
   const targets = useList("/api/admin/targets");
   const [host, setHost] = useState("");
@@ -175,17 +321,41 @@ function Targets() {
     }
   }
 
-  async function remove(target) {
-    if (!window.confirm(`Stop allowing scans of ${target.host}?`)) return;
-    await api(`/api/admin/targets/${target.id}`, { method: "DELETE" });
+  async function send(path, options) {
+    try {
+      await api(path, options);
+      targets.setError("");
+    } catch (err) {
+      targets.setError(err.message);
+    }
     targets.reload();
+  }
+
+  function remove(target) {
+    if (window.confirm(`Stop allowing scans of ${target.host}?`)) {
+      send(`/api/admin/targets/${target.id}`, { method: "DELETE" });
+    }
+  }
+
+  function setShared(target, shared) {
+    const question = shared
+      ? `Let every user scan ${target.host}?`
+      : `Make ${target.host} private? Only the users listed with access (and admins) will be able to scan it.`;
+    if (window.confirm(question)) send(`/api/admin/targets/${target.id}`, { method: "PATCH", body: { shared } });
+  }
+
+  function removeAccess(target, access) {
+    if (window.confirm(`Stop ${access.username} from scanning ${target.host}?`)) {
+      send(`/api/admin/targets/${target.id}/access/${access.user_id}`, { method: "DELETE" });
+    }
   }
 
   return (
     <div className="admin-section">
       <h2>Approved scan targets</h2>
       <p className="muted small">
-        The port scan and website check only run against these hosts. Only add systems you own or have written
+        The port scan and website check only run against these hosts. Shared hosts (the ones added here) can be
+        scanned by every user; private ones only by the users listed. Only add systems you own or have written
         permission to test.
       </p>
       <form className="card row" onSubmit={add}>
@@ -204,6 +374,7 @@ function Targets() {
         <thead>
           <tr>
             <th>Host</th>
+            <th>Access</th>
             <th>Note</th>
             <th>Added by</th>
             <th />
@@ -215,12 +386,37 @@ function Targets() {
               <td>
                 <code>{target.host}</code>
               </td>
+              <td>
+                <AccessBadge shared={target.shared} />
+                {!target.shared && (
+                  <ul className="access-list small">
+                    {target.access.length === 0 && <li className="muted">nobody yet (admins only)</li>}
+                    {target.access.map((access) => (
+                      <li key={access.user_id}>
+                        {access.username}{" "}
+                        <button
+                          type="button"
+                          className="link-button danger-link"
+                          onClick={() => removeAccess(target, access)}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </td>
               <td>{target.note}</td>
               <td>{target.added_by}</td>
               <td>
-                <button type="button" className="link-button" onClick={() => remove(target)}>
-                  Remove
-                </button>
+                <span className="user-actions">
+                  <button type="button" className="link-button" onClick={() => setShared(target, !target.shared)}>
+                    {target.shared ? "Make private" : "Make shared"}
+                  </button>
+                  <button type="button" className="link-button danger-link" onClick={() => remove(target)}>
+                    Remove
+                  </button>
+                </span>
               </td>
             </tr>
           ))}

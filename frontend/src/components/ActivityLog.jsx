@@ -1,5 +1,5 @@
 import { apiUrl } from "../api.js";
-import { formatDate } from "../format.js";
+import { formatDate, formatShortDate } from "../format.js";
 import { useList } from "../useList.js";
 
 // The activity log table and its links, used on /admin (in a scroll box)
@@ -61,7 +61,7 @@ function ActivityToolbar({ onRefresh, showOpenLink }) {
 
 function ActivityTable({ entries, error }) {
   return (
-    <table className="data">
+    <table className="data activity">
       <thead>
         <tr>
           <th>When</th>
@@ -75,16 +75,18 @@ function ActivityTable({ entries, error }) {
       <tbody>
         {entries.map((entry) => (
           <tr key={entry.id}>
-            <td>{formatDate(entry.created_at)}</td>
-            <td>{entry.username}</td>
-            <td className="nowrap">
+            <td className="nowrap" title={formatDate(entry.created_at)}>
+              {formatShortDate(entry.created_at)}
+            </td>
+            <td className="log-user">{entry.username}</td>
+            <td className="log-ip">
               <code>{entry.ip}</code>
             </td>
-            <td>{entry.action.replaceAll("_", " ")}</td>
+            <td className="nowrap">{entry.action.replaceAll("_", " ")}</td>
             <td>
               <span className={`status-badge result-${entry.result}`}>{entry.result}</span>
             </td>
-            <td>{entry.detail}</td>
+            <td className="log-detail">{entry.detail}</td>
           </tr>
         ))}
         {entries.length === 0 && !error && (

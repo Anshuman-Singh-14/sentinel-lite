@@ -19,7 +19,13 @@ export const NAV = [
       { to: "/encoder", label: "Encoder / decoder" },
     ],
   },
-  { heading: "Results", links: [{ to: "/history", label: "Scan history" }] },
+  {
+    heading: "Results",
+    links: [
+      { to: "/history", label: "Scan history" },
+      { to: "/my-websites", label: "My websites" },
+    ],
+  },
 ];
 
 const ADMIN_NAV = { heading: "Admin", links: [{ to: "/admin", label: "Users, targets & activity" }] };

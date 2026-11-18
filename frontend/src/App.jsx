@@ -13,6 +13,7 @@ import HashPage from "./pages/HashPage.jsx";
 import HistoryPage from "./pages/HistoryPage.jsx";
 import LogAnalyzerPage from "./pages/LogAnalyzerPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
+import MyWebsitesPage from "./pages/MyWebsitesPage.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 import PasswordPage from "./pages/PasswordPage.jsx";
 import PortScanPage from "./pages/PortScanPage.jsx";
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/encoder" element={<EncoderPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/history/:scanId" element={<ScanDetailPage />} />
+        <Route path="/my-websites" element={<MyWebsitesPage />} />
         <Route path="/account/email" element={<ChangeEmailPage user={user} />} />
         <Route path="/account/password" element={<ChangePasswordPage onChanged={setUser} />} />
         <Route path="/verify-email" element={<VerifyEmailPage onVerified={loadUser} />} />
