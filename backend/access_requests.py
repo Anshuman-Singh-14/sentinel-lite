@@ -23,7 +23,7 @@ from backend import guard, mailer
 from backend.auth import client_ip, current_user, hash_password, verify_password
 from backend.config import settings
 from backend.db import SessionLocal, get_db
-from backend.models import AccessRequest, EmailToken, User, as_utc, utcnow
+from backend.models import AccessRequest, EmailToken, TargetRequest, User, as_utc, utcnow
 from backend.validation import Email, Password, Username
 
 router = APIRouter(tags=["account requests"])
@@ -132,11 +132,13 @@ def link(token: str) -> str:
     return f"{settings.public_base_url}/verify-email?token={token}"
 
 
-def deliver(request_id: int | None, username: str, to: str, subject: str, body: str) -> None:
+def deliver(request_id: int | None, username: str, to: str, subject: str, body: str,
+            model: type[AccessRequest | TargetRequest] = AccessRequest) -> None:
     """Send one email. Runs as a background task, after the response has gone out.
 
-    The result is stored on the access request (if there is one) so admins can see it
-    and press Resend. Failures are logged with the email masked.
+    The result is stored on the request it is about (an AccessRequest, or a TargetRequest
+    when `model` says so) so admins can see it and press Resend. Failures are logged with
+    the email masked.
     """
     try:
         mailer.send(to, subject, body)
@@ -145,10 +147,10 @@ def deliver(request_id: int | None, username: str, to: str, subject: str, body: 
         status, error = "failed", str(failure)
     with SessionLocal() as db:
         if request_id is not None:
-            access_request = db.get(AccessRequest, request_id)
-            if access_request is not None:
-                access_request.email_status = status
-                access_request.email_error = error[:300]
+            row = db.get(model, request_id)
+            if row is not None:
+                row.email_status = status
+                row.email_error = error[:300]
                 db.commit()
         if status == "failed":
             guard.record(db, username, "email_failed", f'"{subject}" to {guard.mask_email(to)}: {error}')
