@@ -104,6 +104,7 @@ All routes need a logged-in session except `/api/auth/login`, `/api/health`, `/a
 | `POST /api/target-requests` | `{host, reason, confirm: true}` | request (5 per hour per user; the host must resolve) |
 | `GET /api/target-requests` | none | your website requests, newest first |
 | `POST /api/target-requests/{id}/cancel` | none | request (only your own, only while pending) |
+| `GET /api/notifications` | none | `{my_requests, needs_email}`; admins also get `{account_requests_pending, website_requests_pending, emails_failed, total, items}` (the homepage and the sidebar badge) |
 | `GET /api/targets/mine` | none | the targets you can scan, each `shared` or `private` |
 | `POST /api/tools/dns-check` | `{domain}` | scan |
 | `POST /api/tools/port-scan` | `{target, ports: [int] or null}` (null = common ports) | scan |
