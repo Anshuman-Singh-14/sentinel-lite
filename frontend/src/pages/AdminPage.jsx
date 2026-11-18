@@ -1,16 +1,25 @@
 import { useEffect, useRef, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import AccessBadge from "../components/AccessBadge.jsx";
 import ActivityLog from "../components/ActivityLog.jsx";
 import { formatDate, formatShortDate } from "../format.js";
 import { useList } from "../useList.js";
 
-export default function AdminPage({ user }) {
+// onRequestsChanged: called after an approve, reject or resend, so the sidebar badge updates.
+export default function AdminPage({ user, onRequestsChanged }) {
+  const { hash } = useLocation();
+
+  // Links from the homepage end in #account-requests or #website-requests: scroll there.
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView();
+  }, [hash]);
+
   return (
     <section>
       <h1>Admin</h1>
-      <AccessRequests />
-      <TargetRequests />
+      <AccessRequests onChanged={onRequestsChanged} />
+      <TargetRequests onChanged={onRequestsChanged} />
       <Targets />
       <Users currentUser={user} />
       <Activity />
@@ -40,11 +49,22 @@ function Tabs({ tabs, value, onChange }) {
   );
 }
 
+const REQUEST_TABS = ["pending", "approved", "rejected"];
+
+// The tab a request section opens on: ?tab=approved (or rejected) when the link points at
+// this section (e.g. a failed email from the homepage), otherwise Pending.
+function useStartTab(sectionId) {
+  const { hash } = useLocation();
+  const [searchParams] = useSearchParams();
+  const tab = searchParams.get("tab");
+  return hash === `#${sectionId}` && REQUEST_TABS.includes(tab) ? tab : "pending";
+}
+
 const EMAIL_STATUS = { not_sent: "sending…", sent: "sent", failed: "failed", no_email: "no email address" };
 
-function AccessRequests() {
+function AccessRequests({ onChanged }) {
   const pending = useList("/api/admin/access-requests?status=pending");
-  const [status, setStatus] = useState("pending");
+  const [status, setStatus] = useState(useStartTab("account-requests"));
   const shown = useList(`/api/admin/access-requests?status=${status}`);
 
   async function act(request, action, body) {
@@ -56,6 +76,7 @@ function AccessRequests() {
     }
     shown.reload();
     pending.reload();
+    onChanged?.();
   }
 
   function approve(request) {
@@ -68,7 +89,7 @@ function AccessRequests() {
   }
 
   return (
-    <div className="admin-section">
+    <div className="admin-section" id="account-requests">
       <h2>
         Account requests{" "}
         {pending.items.length > 0 && <span className="count-badge alert">{pending.items.length}</span>}
@@ -161,9 +182,9 @@ function AccessRequests() {
 
 // Users asking to scan a website. Approving lets only that user scan it (a new target is
 // added as private); rejecting emails them the reason.
-function TargetRequests() {
+function TargetRequests({ onChanged }) {
   const pending = useList("/api/admin/target-requests?status=pending");
-  const [status, setStatus] = useState("pending");
+  const [status, setStatus] = useState(useStartTab("website-requests"));
   const shown = useList(`/api/admin/target-requests?status=${status}`);
   const columns = status === "pending" ? 7 : 8;
 
@@ -176,6 +197,7 @@ function TargetRequests() {
     }
     shown.reload();
     pending.reload();
+    onChanged?.();
   }
 
   function approve(request) {
@@ -191,7 +213,7 @@ function TargetRequests() {
   }
 
   return (
-    <div className="admin-section">
+    <div className="admin-section" id="website-requests">
       <h2>
         Website requests{" "}
         {pending.items.length > 0 && <span className="count-badge alert">{pending.items.length}</span>}
