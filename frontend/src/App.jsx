@@ -21,6 +21,7 @@ import RequestAccessPage from "./pages/RequestAccessPage.jsx";
 import ScanDetailPage from "./pages/ScanDetailPage.jsx";
 import VerifyEmailPage from "./pages/VerifyEmailPage.jsx";
 import WebCheckPage from "./pages/WebCheckPage.jsx";
+import { useNotifications } from "./useNotifications.js";
 
 export default function App() {
   // undefined = still checking, null = logged out, object = logged-in user
@@ -33,6 +34,8 @@ export default function App() {
   }, []);
 
   useEffect(loadUser, [loadUser]);
+  // Loaded once someone is logged in; also feeds the admin badge in the sidebar.
+  const notifications = useNotifications(user);
 
   async function logout() {
     await api("/api/auth/logout", { method: "POST" });
@@ -56,9 +59,9 @@ export default function App() {
   if (user.must_change_password) return <ChangePasswordPage forced onChanged={setUser} onLogout={logout} />;
 
   return (
-    <Layout user={user} onLogout={logout}>
+    <Layout user={user} onLogout={logout} attentionCount={notifications.data?.total ?? 0}>
       <Routes>
-        <Route path="/" element={<DashboardPage user={user} />} />
+        <Route path="/" element={<DashboardPage user={user} notifications={notifications} />} />
         <Route path="/dns-check" element={<DnsCheckPage />} />
         <Route path="/port-scan" element={<PortScanPage />} />
         <Route path="/web-check" element={<WebCheckPage />} />
@@ -74,7 +77,7 @@ export default function App() {
         <Route path="/verify-email" element={<VerifyEmailPage onVerified={loadUser} />} />
         <Route
           path="/admin"
-          element={user.role === "admin" ? <AdminPage user={user} /> : <Navigate to="/" />}
+          element={user.role === "admin" ? <AdminPage user={user} onRequestsChanged={notifications.reload} /> : <Navigate to="/" />}
         />
         <Route
           path="/admin/activity"

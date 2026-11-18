@@ -737,3 +737,90 @@ table.activity td.log-detail {
   min-width: 16ch;
   overflow-wrap: anywhere;
 }
+
+/* --- Homepage --- */
+
+.intro {
+  max-width: 65ch;
+}
+
+/* Two panels side by side on a wide screen, one under the other on a narrow one. */
+.home-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.home-panel {
+  min-width: 0; /* lets long hosts wrap instead of widening the grid */
+}
+
+.home-panel h2 {
+  margin-top: 0;
+}
+
+.count-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.count-tile {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.count-tile:hover {
+  border-color: var(--accent);
+}
+
+.count-number {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+/* Something is waiting: the number turns red, like the badge in the sidebar. */
+.count-tile.waiting .count-number {
+  color: var(--high);
+}
+
+/* A list of entries with the date on the right. */
+.home-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.home-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.block {
+  display: block;
+}
+
+.tile-description {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: normal;
+}
+
+/* The anchored admin sections, when opened from a homepage link. */
+.admin-section[id] {
+  scroll-margin-top: 1rem;
+}
